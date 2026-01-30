@@ -443,9 +443,6 @@ def update():
 
     console.print("\n[bold cyan]MAO Updater[/bold cyan]\n")
 
-    # 現在のバージョンを保存
-    current_version = __version__
-
     # 開発モードの検出
     current_file = Path(__file__).resolve()
     dev_mode = False
@@ -483,19 +480,30 @@ def update():
             console.print("[red]Failed to check for updates[/red]")
             sys.exit(1)
 
-        # 最新のバージョンを取得
+        # 現在のバージョンと最新のバージョンを取得
         try:
-            # origin/mainのpyproject.tomlを取得
             import tomllib
-            pyproject_content = subprocess.check_output(
+
+            # 現在のバージョン（HEAD）
+            current_pyproject = subprocess.check_output(
+                ["git", "show", "HEAD:pyproject.toml"],
+                cwd=MAO_INSTALL_DIR,
+                text=True
+            )
+            current_data = tomllib.loads(current_pyproject)
+            current_version = current_data["project"]["version"]
+
+            # 最新のバージョン（origin/main）
+            remote_pyproject = subprocess.check_output(
                 ["git", "show", "origin/main:pyproject.toml"],
                 cwd=MAO_INSTALL_DIR,
                 text=True
             )
-            remote_data = tomllib.loads(pyproject_content)
+            remote_data = tomllib.loads(remote_pyproject)
             latest_version = remote_data["project"]["version"]
-        except Exception:
-            latest_version = "unknown"
+        except Exception as e:
+            console.print(f"[red]Failed to get version information: {e}[/red]")
+            sys.exit(1)
 
         # バージョン比較
         if current_version == latest_version:
@@ -504,11 +512,10 @@ def update():
             return
 
         # アップデート可能を表示
-        console.print(f"Current version: [yellow]{current_version}[/yellow]")
-        console.print(f"Latest version:  [green]{latest_version}[/green]\n")
+        console.print(f"[bold]Update available:[/bold] [yellow]{current_version}[/yellow] → [green]{latest_version}[/green]\n")
 
         # 確認
-        confirm = console.input(f"[yellow]Update to version {latest_version}?[/yellow] (y/N): ")
+        confirm = console.input(f"[yellow]Update from {current_version} to {latest_version}?[/yellow] (y/N): ")
         if confirm.lower() != "y":
             console.print("Update cancelled")
             return
@@ -601,22 +608,11 @@ def update():
             console.print(f"[red]Failed to install dependencies: {e}[/red]")
             sys.exit(1)
 
-    # アップデート後のバージョン情報を取得
-    try:
-        import tomllib
-        pyproject_path = MAO_INSTALL_DIR / "pyproject.toml"
-        with open(pyproject_path, "rb") as f:
-            data = tomllib.load(f)
-        new_version = data["project"]["version"]
-
-        console.print("\n[green]✓ Update complete![/green]\n")
-        console.print(f"[dim]{current_version}[/dim] → [bold green]{new_version}[/bold green]")
-        console.print("\nRestart your terminal to use the new version.")
-        console.print()
-    except Exception:
-        console.print("\n[green]✓ Update complete![/green]\n")
-        console.print("Restart your terminal to use the new version.")
-        console.print()
+    # アップデート完了メッセージ
+    console.print("\n[green]✓ Update complete![/green]\n")
+    console.print(f"Version updated: [dim]{current_version}[/dim] → [bold green]{latest_version}[/bold green]")
+    console.print("\n[cyan]Restart your terminal to use the new version.[/cyan]")
+    console.print()
 
 
 @main.command()
