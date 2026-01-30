@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Claude Code CLI Integration** - Execute agents using Claude Code CLI
+  - No API key required when using Claude Code
+  - Parallel execution of multiple Claude Code instances
+  - Each agent gets dedicated workspace in `.mao/agents/`
+  - Automatic detection and fallback to API mode
+  - Documentation: `docs/CLAUDE_CODE_INTEGRATION.md`
 - Version management system
   - `mao version` command for detailed version information
   - `mao --version` for quick version check

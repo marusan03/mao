@@ -94,27 +94,39 @@ uv pip install -e .
 
 ## Quick Start
 
-### Setup API Key (Optional for Dashboard Only)
+### Agent Execution Modes
 
-MAO can run in two modes:
+MAO supports three execution modes:
 
-**Dashboard Mode** (no API key required):
-- View project configuration
-- Monitor project structure
-- Access settings and configuration
+**1. Claude Code CLI Mode** (Recommended - No API key required):
+- ✅ Run multiple Claude Code instances in parallel
+- ✅ Each agent gets its own workspace
+- ✅ No API key needed
+- ✅ Free to use with Claude Code
 
-**Full Mode with Agents** (requires API key):
-- All dashboard features
-- AI agent execution
-- Automated development tasks
+Prerequisites:
+- Install Claude Code: https://claude.ai/download
+- Ensure `claude-code` or `claude` command is available in PATH
 
-To enable agent execution, set your API key:
+**2. API Mode** (Requires API key):
+- Uses Anthropic API directly
+- Requires ANTHROPIC_API_KEY
 
 ```bash
 export ANTHROPIC_API_KEY=your-api-key-here
 ```
 
 Get your API key from: https://console.anthropic.com/
+
+**3. Dashboard Only Mode** (No agent execution):
+- View project configuration
+- Monitor project structure
+- Access settings and configuration
+
+MAO automatically detects which mode to use:
+1. First tries Claude Code CLI
+2. Falls back to API mode if API key is set
+3. Dashboard only if neither is available
 
 ### Initialize Project
 
@@ -446,10 +458,17 @@ uv pip install -e .
 
 ## Requirements
 
+### Required
 - Python 3.11+
 - [uv](https://github.com/astral-sh/uv) - Fast Python package manager
-- tmux (optional, for agent monitoring)
-- Redis (optional, for distributed state)
+
+### For Agent Execution (Choose one)
+- **Option 1 (Recommended)**: [Claude Code](https://claude.ai/download) - No API key needed
+- **Option 2**: Anthropic API key - From https://console.anthropic.com/
+
+### Optional
+- tmux - For agent monitoring in separate panes
+- Redis - For distributed state management
 
 ## License
 

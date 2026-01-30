@@ -14,7 +14,10 @@ from textual.binding import Binding
 from mao.orchestrator.project_loader import ProjectConfig
 from mao.orchestrator.tmux_manager import TmuxManager
 from mao.orchestrator.agent_logger import AgentLogger
-from mao.orchestrator.agent_executor import AgentExecutor, AgentProcess
+from mao.orchestrator.agent_executor import AgentExecutor
+from mao.orchestrator.agent_executor import AgentProcess as APIAgentProcess
+from mao.orchestrator.claude_code_executor import ClaudeCodeExecutor
+from mao.orchestrator.claude_code_executor import AgentProcess as ClaudeAgentProcess
 from mao.ui.widgets.progress_widget import (
     TaskProgressWidget as EnhancedTaskProgressWidget,
     AgentActivityWidget,
@@ -181,9 +184,29 @@ class Dashboard(App):
         self.log_dir = project_path / ".mao" / "logs"
         self.log_dir.mkdir(parents=True, exist_ok=True)
 
+        # エージェント作業ディレクトリ
+        self.agents_work_dir = project_path / ".mao" / "agents"
+        self.agents_work_dir.mkdir(parents=True, exist_ok=True)
+
         # エージェント実行エンジン
-        self.executor = AgentExecutor()
-        # API keyの有無は is_available() でチェック
+        # 1. Claude Code CLIを優先的に使用
+        # 2. なければAPI key経由
+        self.executor = None
+        self.executor_type = None
+
+        try:
+            claude_executor = ClaudeCodeExecutor()
+            if claude_executor.is_available():
+                self.executor = claude_executor
+                self.executor_type = "claude_code"
+        except Exception:
+            pass
+
+        # Claude Codeが使えない場合はAPI経由
+        if self.executor is None:
+            api_executor = AgentExecutor()
+            self.executor = api_executor
+            self.executor_type = "api"
 
         # メトリクス追跡
         self.total_tokens_used = 0
@@ -253,22 +276,40 @@ class Dashboard(App):
             if self.tmux_manager:
                 self.log_viewer_widget.add_log("tmux監視が有効です")
 
-            if not self.executor.is_available():
+            # エージェント実行方式を表示
+            if self.executor_type == "claude_code":
+                self.log_viewer_widget.add_log("✓ エージェント実行: Claude Code CLI")
+                self.log_viewer_widget.add_log(f"  作業ディレクトリ: {self.agents_work_dir}")
+            elif self.executor_type == "api" and self.executor.is_available():
+                self.log_viewer_widget.add_log("✓ エージェント実行: Anthropic API")
+            else:
                 self.log_viewer_widget.add_log(
-                    "⚠ ANTHROPIC_API_KEY が設定されていません"
+                    "⚠ エージェント実行機能が利用できません"
                 )
                 self.log_viewer_widget.add_log(
-                    "  エージェント実行機能は利用できません"
+                    "  以下のいずれかを設定してください："
                 )
                 self.log_viewer_widget.add_log(
-                    "  設定方法: export ANTHROPIC_API_KEY=your-api-key"
+                    "  1. Claude Code CLIをインストール"
+                )
+                self.log_viewer_widget.add_log(
+                    "  2. export ANTHROPIC_API_KEY=your-api-key"
                 )
 
         # 活動ログ
         if self.activity_widget:
-            self.activity_widget.add_activity(
-                "system", "ダッシュボード起動", "success"
-            )
+            if self.executor_type == "claude_code":
+                self.activity_widget.add_activity(
+                    "system", "ダッシュボード起動（Claude Code CLI）", "success"
+                )
+            elif self.executor_type == "api" and self.executor.is_available():
+                self.activity_widget.add_activity(
+                    "system", "ダッシュボード起動（Anthropic API）", "success"
+                )
+            else:
+                self.activity_widget.add_activity(
+                    "system", "ダッシュボード起動（エージェント実行無効）", "warning"
+                )
 
     def action_refresh(self) -> None:
         """画面をリフレッシュ"""
@@ -328,14 +369,28 @@ class Dashboard(App):
             )
 
         # エージェントプロセス作成
-        agent_process = AgentProcess(
-            agent_id=agent_id,
-            role_name=role_name,
-            prompt=prompt,
-            model=model,
-            logger=agent_logger,
-            executor=self.executor,
-        )
+        if self.executor_type == "claude_code":
+            # Claude Code executorの場合は専用の作業ディレクトリを作成
+            agent_work_dir = self.agents_work_dir / agent_id
+            agent_process = ClaudeAgentProcess(
+                agent_id=agent_id,
+                role_name=role_name,
+                prompt=prompt,
+                model=model,
+                logger=agent_logger,
+                executor=self.executor,
+                work_dir=agent_work_dir,
+            )
+        else:
+            # API経由の場合
+            agent_process = APIAgentProcess(
+                agent_id=agent_id,
+                role_name=role_name,
+                prompt=prompt,
+                model=model,
+                logger=agent_logger,
+                executor=self.executor,
+            )
 
         # エージェント情報を保存
         self.agents[agent_id] = {
