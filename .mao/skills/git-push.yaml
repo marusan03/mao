@@ -1,0 +1,55 @@
+name: git-push
+display_name: Git Push Workflow
+description: Complete git workflow from add to push (with optional tagging)
+version: "1.0"
+
+parameters:
+  - name: message
+    type: string
+    description: Commit message
+    required: true
+
+  - name: files
+    type: string
+    description: "Files to add (default: all changes)"
+    required: false
+    default: "."
+
+  - name: tag
+    type: string
+    description: "Optional tag name (e.g., v1.0.0)"
+    required: false
+
+  - name: tag_message
+    type: string
+    description: Tag annotation message
+    required: false
+
+  - name: remote
+    type: string
+    description: Remote name
+    required: false
+    default: origin
+
+  - name: branch
+    type: string
+    description: Branch name
+    required: false
+    default: main
+
+script: |
+  #!/bin/bash
+  # This skill uses git-push.sh script
+
+examples:
+  - description: Simple commit and push
+    command: mao skills run git-push --message="Fix bug in authentication"
+
+  - description: Commit all changes and push
+    command: mao skills run git-push --message="Add new feature" --files="."
+
+  - description: Commit, tag, and push
+    command: mao skills run git-push --message="Release version 1.0.0" --tag="v1.0.0" --tag_message="First stable release"
+
+  - description: Commit specific files
+    command: mao skills run git-push --message="Update docs" --files="README.md docs/"

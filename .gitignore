@@ -59,7 +59,10 @@ dmypy.json
 .ruff_cache/
 
 # Project specific
-.mao/
+.mao/state.db
+.mao/*.log
+.mao/logs/
+.mao/skill_proposals/
 *.db
 *.sqlite
 *.log
