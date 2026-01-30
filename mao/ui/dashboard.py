@@ -215,6 +215,10 @@ class Dashboard(App):
             self.executor = api_executor
             self.executor_type = "api"
 
+        # タスクディスパッチャー（マルチワーカー対応）
+        from mao.orchestrator.task_dispatcher import TaskDispatcher
+        self.task_dispatcher = TaskDispatcher(project_path=project_path)
+
         # メトリクス追跡
         self.total_tokens_used = 0
         self.total_cost = 0.0
@@ -323,17 +327,26 @@ class Dashboard(App):
             if self.log_viewer_widget:
                 self.log_viewer_widget.add_log(f"初期タスクを開始: {self.initial_prompt[:50]}...")
 
-            task_info = {
-                "description": self.initial_prompt,
-                "role": self.initial_role,
-            }
+            # グリッドレイアウトの場合は複数ワーカーに分配
+            if self.tmux_manager and self.tmux_manager.use_grid_layout:
+                self.spawn_multi_agents(
+                    task_description=self.initial_prompt,
+                    num_workers=3,  # デフォルト3ワーカー
+                    model=self.initial_model,
+                )
+            else:
+                # 通常モード：単一エージェント
+                task_info = {
+                    "description": self.initial_prompt,
+                    "role": self.initial_role,
+                }
 
-            self.spawn_agent(
-                role_name=self.initial_role,
-                task=task_info,
-                prompt=self.initial_prompt,
-                model=self.initial_model,
-            )
+                self.spawn_agent(
+                    role_name=self.initial_role,
+                    task=task_info,
+                    prompt=self.initial_prompt,
+                    model=self.initial_model,
+                )
 
     def action_refresh(self) -> None:
         """画面をリフレッシュ"""
@@ -428,6 +441,110 @@ class Dashboard(App):
         asyncio.create_task(self._run_agent(agent_id, agent_process))
 
         return agent_id
+
+    def spawn_multi_agents(
+        self, task_description: str, num_workers: int = 3, model: str = "claude-sonnet-4-20250514"
+    ) -> List[str]:
+        """複数のワーカーエージェントを起動（グリッドレイアウト用）
+
+        Args:
+            task_description: タスクの説明
+            num_workers: 起動するワーカー数
+            model: 使用するモデル
+
+        Returns:
+            起動したエージェントIDのリスト
+        """
+        if self.log_viewer_widget:
+            self.log_viewer_widget.add_log(f"マルチエージェントモード: {num_workers}ワーカーを起動")
+
+        # タスクIDを生成
+        task_id = f"task-{int(time.time())}"
+
+        # タスクを分解
+        subtasks = self.task_dispatcher.decompose_task_to_workers(
+            task_id=task_id,
+            task_description=task_description,
+            num_workers=num_workers
+        )
+
+        # ダッシュボード更新
+        self.task_dispatcher.update_dashboard(task_id, task_description, "Running")
+
+        # 各サブタスクに対してワーカーを起動
+        agent_ids = []
+        for subtask in subtasks:
+            if not subtask.worker_id:
+                continue
+
+            agent_id = f"{subtask.worker_id}-{int(time.time())}"
+
+            # エージェント専用ロガー作成
+            agent_logger = AgentLogger(
+                agent_id=agent_id,
+                agent_name=subtask.worker_id,
+                log_dir=self.log_dir
+            )
+
+            # グリッドレイアウトのペインに割り当て
+            if self.tmux_manager:
+                self.tmux_manager.assign_agent_to_pane(
+                    role=subtask.worker_id,
+                    agent_id=agent_id,
+                    log_file=agent_logger.log_file
+                )
+
+            # ログ
+            if self.log_viewer_widget:
+                self.log_viewer_widget.add_log(f"{subtask.worker_id} を起動: {subtask.description[:30]}...")
+
+            # ステータス更新
+            if self.agent_status_widget:
+                self.agent_status_widget.update_status(
+                    agent_id, "THINKING", subtask.description
+                )
+
+            # エージェントプロセス作成
+            if self.executor_type == "claude_code":
+                agent_work_dir = self.agents_work_dir / agent_id
+                agent_process = ClaudeAgentProcess(
+                    agent_id=agent_id,
+                    role_name=subtask.worker_id,
+                    prompt=subtask.description,
+                    model=model,
+                    logger=agent_logger,
+                    executor=self.executor,
+                    work_dir=agent_work_dir,
+                )
+            else:
+                agent_process = APIAgentProcess(
+                    agent_id=agent_id,
+                    role_name=subtask.worker_id,
+                    prompt=subtask.description,
+                    model=model,
+                    logger=agent_logger,
+                    executor=self.executor,
+                )
+
+            # エージェント情報を保存
+            self.agents[agent_id] = {
+                "role": subtask.worker_id,
+                "logger": agent_logger,
+                "task": {"id": subtask.subtask_id, "description": subtask.description},
+                "process": agent_process,
+            }
+
+            # バックグラウンドで起動
+            asyncio.create_task(self._run_agent(agent_id, agent_process))
+
+            agent_ids.append(agent_id)
+
+        if self.activity_widget:
+            self.activity_widget.add_activity(
+                "system", f"{len(agent_ids)}ワーカーを起動", "success"
+            )
+
+        return agent_ids
 
     async def _run_agent(self, agent_id: str, process: Union[APIAgentProcess, ClaudeAgentProcess]):
         """エージェントをバックグラウンドで実行"""

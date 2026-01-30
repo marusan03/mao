@@ -3,18 +3,66 @@ Task dispatcher for launching agents
 """
 import yaml
 from pathlib import Path
-from typing import Dict, Any, Optional, TYPE_CHECKING
+from typing import Dict, Any, Optional, List, TYPE_CHECKING
+from datetime import datetime
 
 if TYPE_CHECKING:
     from mao.orchestrator.agent_executor import AgentExecutor
     from mao.orchestrator.agent_logger import AgentLogger
 
 
+class SubTask:
+    """サブタスク（ワーカーに割り当てるタスク）"""
+
+    def __init__(
+        self,
+        subtask_id: str,
+        parent_task_id: str,
+        description: str,
+        worker_id: Optional[str] = None,
+    ):
+        self.subtask_id = subtask_id
+        self.parent_task_id = parent_task_id
+        self.description = description
+        self.worker_id = worker_id
+        self.status = "pending"
+        self.created_at = datetime.utcnow().isoformat()
+        self.result: Optional[str] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        """辞書に変換"""
+        return {
+            "subtask_id": self.subtask_id,
+            "parent_task_id": self.parent_task_id,
+            "description": self.description,
+            "worker_id": self.worker_id,
+            "status": self.status,
+            "created_at": self.created_at,
+            "result": self.result,
+        }
+
+
 class TaskDispatcher:
     """Claude Code の Task tool を使ってエージェントを起動"""
 
-    def __init__(self):
+    def __init__(self, project_path: Optional[Path] = None, max_workers: int = 8):
         self.roles = self._load_roles()
+        self.max_workers = max_workers
+        self.project_path = project_path or Path.cwd()
+
+        # キューディレクトリ
+        if self.project_path:
+            self.queue_dir = self.project_path / ".mao" / "queue"
+            self.tasks_dir = self.queue_dir / "tasks"
+            self.results_dir = self.queue_dir / "results"
+
+            # ディレクトリ作成
+            self.queue_dir.mkdir(parents=True, exist_ok=True)
+            self.tasks_dir.mkdir(exist_ok=True)
+            self.results_dir.mkdir(exist_ok=True)
+
+        # 現在のタスク管理
+        self.current_subtasks: List[SubTask] = []
 
     def _load_roles(self) -> Dict[str, Any]:
         """全ロール定義を読み込み"""
@@ -175,3 +223,120 @@ class TaskDispatcher:
             agent_config["result"] = result
 
         return agent_config
+
+    def decompose_task_to_workers(
+        self, task_id: str, task_description: str, num_workers: Optional[int] = None
+    ) -> List[SubTask]:
+        """タスクを複数のワーカー用サブタスクに分解
+
+        Args:
+            task_id: 親タスクID
+            task_description: タスクの説明
+            num_workers: 使用するワーカー数（Noneの場合は自動決定）
+
+        Returns:
+            SubTaskのリスト
+        """
+        # TODO: 実際にはLLMを使ってタスク分解を行う
+        # 今はシンプルに1つのサブタスクとして全ワーカーに同じタスクを割り当て
+        if num_workers is None:
+            num_workers = 1
+
+        num_workers = min(num_workers, self.max_workers)
+        subtasks = []
+
+        for idx in range(num_workers):
+            subtask_id = f"{task_id}-sub{idx + 1}"
+            worker_id = f"worker-{idx + 1}"
+
+            subtask = SubTask(
+                subtask_id=subtask_id,
+                parent_task_id=task_id,
+                description=task_description,
+                worker_id=worker_id,
+            )
+            subtasks.append(subtask)
+
+        self.current_subtasks = subtasks
+        return subtasks
+
+    def assign_tasks_to_workers(self, subtasks: List[SubTask]) -> None:
+        """サブタスクをワーカーに割り当て（YAMLファイルに書き込み）"""
+        for subtask in subtasks:
+            if subtask.worker_id:
+                self._write_worker_task(subtask.worker_id, subtask)
+
+    def _write_worker_task(self, worker_id: str, subtask: SubTask) -> None:
+        """ワーカー用のタスクファイルを書き込み"""
+        task_file = self.tasks_dir / f"{worker_id}.yaml"
+
+        task_data = {
+            "task": subtask.to_dict(),
+            "assigned_at": datetime.utcnow().isoformat(),
+        }
+
+        with open(task_file, "w") as f:
+            yaml.dump(task_data, f, default_flow_style=False, allow_unicode=True)
+
+    def read_worker_result(self, worker_id: str) -> Optional[Dict[str, Any]]:
+        """ワーカーの結果を読み込み"""
+        result_file = self.results_dir / f"{worker_id}.yaml"
+
+        if not result_file.exists():
+            return None
+
+        with open(result_file) as f:
+            return yaml.safe_load(f)
+
+    def collect_worker_results(self) -> Dict[str, Any]:
+        """すべてのワーカーの結果を収集"""
+        results = {}
+
+        for subtask in self.current_subtasks:
+            if subtask.worker_id:
+                result = self.read_worker_result(subtask.worker_id)
+                if result:
+                    results[subtask.worker_id] = result
+                    subtask.status = "completed"
+                    subtask.result = result.get("result")
+
+        return results
+
+    def update_dashboard(self, task_id: str, task_description: str, status: str) -> None:
+        """ダッシュボードを更新"""
+        if not self.project_path:
+            return
+
+        dashboard_file = self.project_path / ".mao" / "dashboard.md"
+
+        content = f"""# MAO Dashboard
+
+## Current Task
+**ID:** {task_id}
+**Status:** {status}
+**Description:** {task_description}
+
+## Workers
+"""
+
+        for subtask in self.current_subtasks:
+            worker_status = subtask.status
+            content += f"- **{subtask.worker_id}**: {worker_status}\n"
+            content += f"  - Task: {subtask.description}\n"
+            if subtask.result:
+                content += f"  - Result: {subtask.result[:100]}...\n"
+
+        content += f"\n---\nLast updated: {datetime.utcnow().isoformat()}\n"
+
+        with open(dashboard_file, "w") as f:
+            f.write(content)
+
+    def clear_queue(self) -> None:
+        """キューをクリア"""
+        # タスクファイルを削除
+        for task_file in self.tasks_dir.glob("*.yaml"):
+            task_file.unlink()
+
+        # 結果ファイルを削除
+        for result_file in self.results_dir.glob("*.yaml"):
+            result_file.unlink()
