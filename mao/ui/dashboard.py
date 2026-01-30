@@ -15,6 +15,12 @@ from mao.orchestrator.project_loader import ProjectConfig
 from mao.orchestrator.tmux_manager import TmuxManager
 from mao.orchestrator.agent_logger import AgentLogger
 from mao.orchestrator.agent_executor import AgentExecutor, AgentProcess
+from mao.ui.widgets.progress_widget import (
+    TaskProgressWidget as EnhancedTaskProgressWidget,
+    AgentActivityWidget,
+    MetricsWidget,
+)
+from mao.ui.widgets.approval_widget import UnifiedApprovalPanel
 
 
 class AgentStatusWidget(Static):
@@ -106,7 +112,7 @@ class Dashboard(App):
     CSS = """
     Screen {
         layout: grid;
-        grid-size: 2 3;
+        grid-size: 3 4;
         grid-gutter: 1;
         padding: 1;
     }
@@ -122,13 +128,24 @@ class Dashboard(App):
         padding: 1;
     }
 
+    #metrics {
+        border: solid magenta;
+        padding: 1;
+    }
+
     #approval_panel {
         border: solid yellow;
+        padding: 1;
+        row-span: 2;
+    }
+
+    #activity {
+        border: solid cyan;
         padding: 1;
     }
 
     #log_viewer {
-        column-span: 2;
+        column-span: 3;
         border: solid cyan;
         padding: 1;
         height: 100%;
@@ -171,9 +188,19 @@ class Dashboard(App):
             self.executor = None
             # API key がない場合はログに記録（起動後）
 
+        # メトリクス追跡
+        self.total_tokens_used = 0
+        self.total_cost = 0.0
+        self.completed_tasks = 0
+        self.failed_tasks = 0
+
         # ウィジェット参照
         self.agent_status_widget = None
         self.log_viewer_widget = None
+        self.task_progress_widget = None
+        self.metrics_widget = None
+        self.activity_widget = None
+        self.approval_widget = None
 
     def compose(self) -> ComposeResult:
         """Create child widgets for the app."""
@@ -183,16 +210,21 @@ class Dashboard(App):
         self.agent_status_widget = AgentStatusWidget(id="agent_status")
         yield self.agent_status_widget
 
-        # タスク進捗
-        yield TaskProgressWidget(id="task_progress")
+        # タスク進捗（改善版）
+        self.task_progress_widget = EnhancedTaskProgressWidget(id="task_progress")
+        yield self.task_progress_widget
 
-        # 承認パネル
-        approval_panel = Container(id="approval_panel")
-        with approval_panel:
-            yield Label("[bold]承認パネル[/bold]")
-            yield Label("\n[dim]承認待ちの項目はありません[/dim]")
+        # メトリクス（Claude使用量含む）
+        self.metrics_widget = MetricsWidget(id="metrics")
+        yield self.metrics_widget
 
-        yield approval_panel
+        # 承認パネル（統合版）
+        self.approval_widget = UnifiedApprovalPanel(id="approval_panel")
+        yield self.approval_widget
+
+        # 最近の活動
+        self.activity_widget = AgentActivityWidget(id="activity")
+        yield self.activity_widget
 
         # ログビューアー
         self.log_viewer_widget = LogViewerWidget(id="log_viewer")
@@ -203,6 +235,17 @@ class Dashboard(App):
     def on_mount(self) -> None:
         """アプリケーション起動時の処理"""
         self.title = f"MAO ダッシュボード - {self.config.project_name}"
+
+        # メトリクス初期化
+        if self.metrics_widget:
+            self.metrics_widget.update_metrics(
+                total_agents=0,
+                active_agents=0,
+                completed_tasks=0,
+                failed_tasks=0,
+                total_tokens=0,
+                estimated_cost=0.0,
+            )
 
         # 起動ログ
         if self.log_viewer_widget:
@@ -217,6 +260,12 @@ class Dashboard(App):
                 self.log_viewer_widget.add_log(
                     "⚠ ANTHROPIC_API_KEY が設定されていません。エージェント実行は無効です"
                 )
+
+        # 活動ログ
+        if self.activity_widget:
+            self.activity_widget.add_activity(
+                "system", "ダッシュボード起動", "success"
+            )
 
     def action_refresh(self) -> None:
         """画面をリフレッシュ"""
@@ -294,7 +343,58 @@ class Dashboard(App):
     async def _run_agent(self, agent_id: str, process: AgentProcess):
         """エージェントをバックグラウンドで実行"""
         try:
+            # 活動ログ：開始
+            if self.activity_widget:
+                self.activity_widget.add_activity(agent_id, "実行開始", "info")
+
             result = await process.start()
+
+            # メトリクス更新
+            if result.get("success"):
+                usage = result.get("usage", {})
+                tokens = usage.get("input_tokens", 0) + usage.get("output_tokens", 0)
+                self.total_tokens_used += tokens
+
+                # コスト計算（AgentExecutorと同じロジック）
+                model = result.get("model", "")
+                pricing = {
+                    "claude-opus-4-20250514": {"input": 15.0, "output": 75.0},
+                    "claude-sonnet-4-20250514": {"input": 3.0, "output": 15.0},
+                    "claude-haiku-4-20250514": {"input": 0.25, "output": 1.25},
+                }
+                price = pricing.get(model, {"input": 3.0, "output": 15.0})
+                cost = (
+                    usage.get("input_tokens", 0) / 1_000_000 * price["input"]
+                    + usage.get("output_tokens", 0) / 1_000_000 * price["output"]
+                )
+                self.total_cost += cost
+
+                self.completed_tasks += 1
+
+                # メトリクスウィジェット更新
+                if self.metrics_widget:
+                    self.metrics_widget.update_metrics(
+                        total_agents=len(self.agents),
+                        active_agents=sum(
+                            1 for a in self.agents.values() if a["process"].is_running()
+                        ),
+                        completed_tasks=self.completed_tasks,
+                        failed_tasks=self.failed_tasks,
+                        total_tokens=self.total_tokens_used,
+                        estimated_cost=self.total_cost,
+                    )
+            else:
+                self.failed_tasks += 1
+
+                if self.metrics_widget:
+                    self.metrics_widget.update_metrics(
+                        total_agents=len(self.agents),
+                        active_agents=sum(
+                            1 for a in self.agents.values() if a["process"].is_running()
+                        ),
+                        completed_tasks=self.completed_tasks,
+                        failed_tasks=self.failed_tasks,
+                    )
 
             # ステータス更新
             if self.agent_status_widget:
@@ -310,9 +410,25 @@ class Dashboard(App):
                 else:
                     self.log_viewer_widget.add_log(f"✗ {agent_id} がエラーで終了しました")
 
+            # 活動ログ：完了
+            if self.activity_widget:
+                if result.get("success"):
+                    usage = result.get("usage", {})
+                    tokens = usage.get("output_tokens", 0)
+                    self.activity_widget.add_activity(
+                        agent_id, f"完了 ({tokens} tokens)", "success"
+                    )
+                else:
+                    self.activity_widget.add_activity(agent_id, "エラー", "error")
+
         except Exception as e:
+            self.failed_tasks += 1
+
             if self.agent_status_widget:
                 self.agent_status_widget.update_status(agent_id, "ERROR", str(e))
 
             if self.log_viewer_widget:
                 self.log_viewer_widget.add_log(f"✗ {agent_id} で例外発生: {str(e)}")
+
+            if self.activity_widget:
+                self.activity_widget.add_activity(agent_id, f"例外: {str(e)}", "error")
