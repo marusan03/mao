@@ -10,11 +10,13 @@ import shutil
 import click
 from rich.console import Console
 
+from mao.version import __version__, get_git_commit
+
 console = Console()
 
 
 @click.group()
-@click.version_option(version="0.1.0")
+@click.version_option(version=__version__)
 def main():
     """Multi-Agent Orchestrator - Hierarchical AI development system"""
     pass
@@ -312,6 +314,58 @@ def uninstall(yes: bool):
 
 
 @main.command()
+def version():
+    """Show detailed version information"""
+    from rich.table import Table
+
+    console.print(f"\n[bold cyan]MAO Version Information[/bold cyan]\n")
+
+    table = Table(show_header=False, box=None)
+    table.add_column("Key", style="dim")
+    table.add_column("Value", style="green")
+
+    # バージョン
+    table.add_row("Version", __version__)
+
+    # インストールパス
+    mao_home = Path.home() / ".mao"
+    if mao_home.exists():
+        table.add_row("Install path", str(mao_home))
+
+        # Git コミット
+        commit = get_git_commit()
+        if commit:
+            table.add_row("Git commit", commit)
+
+        # インストール日時
+        install_dir = mao_home / "install"
+        if install_dir.exists():
+            import datetime
+            mtime = install_dir.stat().st_mtime
+            install_time = datetime.datetime.fromtimestamp(mtime)
+            table.add_row("Installed", install_time.strftime("%Y-%m-%d %H:%M:%S"))
+
+    # Python バージョン
+    import platform
+    python_version = platform.python_version()
+    table.add_row("Python", python_version)
+
+    # uv バージョン
+    if shutil.which("uv"):
+        import subprocess
+        try:
+            uv_version = subprocess.check_output(
+                ["uv", "--version"], text=True, stderr=subprocess.DEVNULL
+            ).split()[1]
+            table.add_row("uv", uv_version)
+        except Exception:
+            pass
+
+    console.print(table)
+    console.print()
+
+
+@main.command()
 def update():
     """Update MAO to the latest version"""
     import subprocess
@@ -322,6 +376,7 @@ def update():
     MAO_VENV = MAO_HOME / "venv"
 
     console.print("\n[bold cyan]MAO Updater[/bold cyan]\n")
+    console.print(f"Current version: [green]{__version__}[/green]")
 
     # インストールディレクトリの確認
     if not MAO_INSTALL_DIR.exists():
@@ -331,7 +386,7 @@ def update():
 
     # Gitリポジトリかどうか確認
     if (MAO_INSTALL_DIR / ".git").exists():
-        console.print("Checking for updates...")
+        console.print("\nChecking for updates...")
 
         # 現在のコミット
         current_commit = subprocess.check_output(
@@ -441,9 +496,27 @@ def update():
         console.print(f"[red]Failed to install dependencies: {e}[/red]")
         sys.exit(1)
 
-    console.print("\n[green]✓ Update complete![/green]\n")
-    console.print("Run [cyan]mao --version[/cyan] to verify the update")
-    console.print()
+    # アップデート後のバージョン情報を取得
+    try:
+        import tomllib
+        pyproject_path = MAO_INSTALL_DIR / "pyproject.toml"
+        with open(pyproject_path, "rb") as f:
+            data = tomllib.load(f)
+        new_version = data["project"]["version"]
+
+        new_commit = get_git_commit(MAO_INSTALL_DIR)
+
+        console.print("\n[green]✓ Update complete![/green]\n")
+        console.print(f"Updated to version: [green]{new_version}[/green]")
+        if new_commit:
+            console.print(f"Commit: [dim]{new_commit}[/dim]")
+        console.print("\nRestart your terminal or run:")
+        console.print("  [cyan]mao version[/cyan] - to see detailed version info")
+        console.print()
+    except Exception:
+        console.print("\n[green]✓ Update complete![/green]\n")
+        console.print("Run [cyan]mao version[/cyan] to verify the update")
+        console.print()
 
 
 @main.command()

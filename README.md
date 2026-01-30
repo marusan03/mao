@@ -67,6 +67,7 @@ curl -fsSL https://raw.githubusercontent.com/marusan03/mao/main/install.sh | sh
 ```
 
 The installer will:
+
 - Verify uv is installed
 - Create a virtual environment at `~/.mao/venv`
 - Install MAO and all dependencies from `pyproject.toml`
@@ -135,15 +136,27 @@ python examples/test_agent_streaming.py
 Keep MAO up to date with the latest features and fixes:
 
 ```bash
+# Check current version
+mao version
+
+# Update to latest version
 mao update
 ```
 
-The update command will:
+The `mao version` command shows:
+- Current version number
+- Git commit hash
+- Installation date
+- Python and uv versions
+
+The `mao update` command will:
+- Show current version
 - Check for new commits on GitHub
-- Show you what's changed
+- Display what's changed (commit log)
 - Ask for confirmation before updating
 - Pull the latest changes (if installed via git)
 - Reinstall dependencies with uv
+- Show new version after update
 - Preserve your project configurations
 
 ## Usage
@@ -158,16 +171,18 @@ mao config            # Show current configuration
 mao roles             # List available agent roles
 mao languages         # List supported languages
 mao languages python  # Show Python language details
+mao version           # Show detailed version information
 mao update            # Update MAO to the latest version
 mao uninstall         # Uninstall MAO
 mao --help            # Show help
+mao --version         # Show version (short)
 ```
 
 ### Project Structure
 
 After `mao init`, your project will have:
 
-```
+```sh
 your-project/
 ├── .mao/
 │   ├── config.yaml              # Project configuration
@@ -199,6 +214,7 @@ state:
 ### Language Configuration
 
 MAO comes with pre-configured language settings for:
+
 - **Python** (PEP 8, Black, Ruff, mypy)
 - **TypeScript** (Prettier, ESLint, Airbnb style)
 - **JavaScript** (Prettier, ESLint)
@@ -206,12 +222,14 @@ MAO comes with pre-configured language settings for:
 - **Rust** (rustfmt, clippy)
 
 Each language configuration includes:
+
 - Recommended tools (formatter, linter, test framework)
 - Default settings (line length, indent size, etc.)
 - Coding standards references
 - File extensions
 
 View available languages:
+
 ```bash
 mao languages           # List all supported languages
 mao languages python    # Show Python configuration details
@@ -240,6 +258,7 @@ Agents automatically load coding standards based on the project language. You ca
 ```
 
 **How it works:**
+
 1. Default standards are loaded from MAO's built-in templates
 2. Project-specific standards from `.mao/coding_standards/<language>_custom.md` are merged
 3. Agents receive the combined standards in their context
@@ -301,6 +320,7 @@ commands:
 ```
 
 The skill is reviewed for:
+
 - **Security**: No dangerous operations
 - **Generalization**: Works across projects
 - **Documentation**: Clear and complete
@@ -320,7 +340,7 @@ MAO uses Claude API directly for agent execution. Each agent runs as an asynchro
 
 ### Architecture
 
-```
+```text
 Dashboard (Textual UI)
     ↓
 AgentExecutor (Anthropic SDK)
