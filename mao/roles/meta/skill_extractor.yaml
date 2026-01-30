@@ -1,0 +1,17 @@
+name: skill_extractor
+display_name: "🔍 Skill Extractor"
+subagent_type: general-purpose
+model: sonnet
+
+responsibilities:
+  - 繰り返しパターンの検出
+  - Skill定義のドラフト生成
+  - 操作の汎用化とパラメータ化
+  - 再利用可能なskillへの変換
+
+tools:
+  - Read
+  - Grep
+  - Glob
+
+prompt_file: mao/roles/meta/skill_extractor.md

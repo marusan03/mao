@@ -1,0 +1,19 @@
+#!/bin/bash
+# Development wrapper - use this during development instead of installing
+
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+PROJECT_ROOT="$(dirname "${SCRIPT_DIR}")"
+
+# Check if virtual environment exists
+if [ ! -d "${PROJECT_ROOT}/venv" ]; then
+    echo "Creating virtual environment..."
+    python3 -m venv "${PROJECT_ROOT}/venv"
+    source "${PROJECT_ROOT}/venv/bin/activate"
+    echo "Installing dependencies..."
+    pip install -e "${PROJECT_ROOT}"
+else
+    source "${PROJECT_ROOT}/venv/bin/activate"
+fi
+
+# Run the CLI
+python -m mao.cli "$@"

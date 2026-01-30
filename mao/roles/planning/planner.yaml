@@ -1,0 +1,18 @@
+name: planner
+display_name: "📋 Planner"
+subagent_type: general-purpose
+model: sonnet
+
+responsibilities:
+  - ユーザー意図の理解と要件定義
+  - タスクの分解と優先順位付け
+  - 開発計画の作成
+  - リソース配分の決定
+
+tools:
+  - Read
+  - Grep
+  - Glob
+  - Bash
+
+prompt_file: mao/roles/planning/planner.md

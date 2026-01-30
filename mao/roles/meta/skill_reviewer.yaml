@@ -1,0 +1,16 @@
+name: skill_reviewer
+display_name: "👁️ Skill Reviewer"
+subagent_type: general-purpose
+model: sonnet
+
+responsibilities:
+  - Skill定義の品質レビュー
+  - セキュリティリスクの評価
+  - 汎用性の検証
+  - ドキュメントの質チェック
+
+tools:
+  - Read
+  - Grep
+
+prompt_file: mao/roles/meta/skill_reviewer.md

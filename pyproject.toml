@@ -1,0 +1,75 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mao"
+version = "0.1.0"
+description = "Multi-Agent Orchestrator - Hierarchical AI agent system powered by Claude"
+authors = [
+    {name = "MAO Contributors"}
+]
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+keywords = ["ai", "agents", "claude", "multi-agent", "orchestrator"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+dependencies = [
+    "anthropic>=0.40.0",
+    "textual>=0.85.0",
+    "redis>=5.0.0",
+    "pyyaml>=6.0",
+    "pydantic>=2.0.0",
+    "pydantic-settings>=2.0.0",
+    "rich>=13.0.0",
+    "click>=8.1.0",
+    "aiofiles>=23.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "black>=24.0.0",
+    "ruff>=0.6.0",
+    "mypy>=1.11.0",
+]
+
+[project.scripts]
+mao = "mao.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/marusan03/mao"
+Documentation = "https://github.com/marusan03/mao#readme"
+Repository = "https://github.com/marusan03/mao"
+Issues = "https://github.com/marusan03/mao/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["mao*"]
+
+[tool.setuptools.package-data]
+mao = [
+    "roles/**/*.yaml",
+    "roles/**/*.md",
+    "config/**/*.yaml",
+    "config/**/*.md",
+]
+
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
