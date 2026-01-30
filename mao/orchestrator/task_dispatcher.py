@@ -20,11 +20,15 @@ class SubTask:
         parent_task_id: str,
         description: str,
         worker_id: Optional[str] = None,
+        role: str = "general",
+        priority: str = "medium",
     ):
         self.subtask_id = subtask_id
         self.parent_task_id = parent_task_id
         self.description = description
         self.worker_id = worker_id
+        self.role = role  # エージェントの役割
+        self.priority = priority  # タスクの優先度
         self.status = "pending"
         self.created_at = datetime.utcnow().isoformat()
         self.result: Optional[str] = None
@@ -36,6 +40,8 @@ class SubTask:
             "parent_task_id": self.parent_task_id,
             "description": self.description,
             "worker_id": self.worker_id,
+            "role": self.role,
+            "priority": self.priority,
             "status": self.status,
             "created_at": self.created_at,
             "result": self.result,
@@ -224,10 +230,51 @@ class TaskDispatcher:
 
         return agent_config
 
+    async def decompose_task_with_manager(
+        self, task_id: str, task_description: str, num_workers: int
+    ) -> List[SubTask]:
+        """Managerエージェントを使ってタスクを分解
+
+        Args:
+            task_id: 親タスクID
+            task_description: タスクの説明
+            num_workers: 使用するワーカー数
+
+        Returns:
+            SubTaskのリスト
+        """
+        # Managerプロンプトを読み込み
+        manager_prompt_file = Path(__file__).parent.parent / "agents" / "manager_prompt.md"
+
+        if not manager_prompt_file.exists():
+            # フォールバック：シンプルな分解
+            return self.decompose_task_to_workers(task_id, task_description, num_workers)
+
+        with open(manager_prompt_file) as f:
+            manager_prompt = f.read()
+
+        # Managerエージェントに問い合わせ
+        full_prompt = f"""{manager_prompt}
+
+---
+
+# User Task
+
+{task_description}
+
+**Available Workers**: {num_workers}
+
+Please analyze this task and provide the decomposition in YAML format.
+"""
+
+        # TODO: LLMを呼び出してタスク分解
+        # 今はシンプルな実装（後で実装）
+        return self.decompose_task_to_workers(task_id, task_description, num_workers)
+
     def decompose_task_to_workers(
         self, task_id: str, task_description: str, num_workers: Optional[int] = None
     ) -> List[SubTask]:
-        """タスクを複数のワーカー用サブタスクに分解
+        """タスクを複数のワーカー用サブタスクに分解（シンプル版）
 
         Args:
             task_id: 親タスクID
@@ -237,8 +284,6 @@ class TaskDispatcher:
         Returns:
             SubTaskのリスト
         """
-        # TODO: 実際にはLLMを使ってタスク分解を行う
-        # 今はシンプルに1つのサブタスクとして全ワーカーに同じタスクを割り当て
         if num_workers is None:
             num_workers = 1
 

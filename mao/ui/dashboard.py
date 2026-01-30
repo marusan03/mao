@@ -8,7 +8,7 @@ import asyncio
 
 from textual.app import App, ComposeResult
 from textual.containers import Container, Vertical, Horizontal
-from textual.widgets import Header, Footer, Static, Button, Label
+from textual.widgets import Header, Footer, Static, Button, Label, Input, Select
 from textual.binding import Binding
 
 from mao.orchestrator.project_loader import ProjectConfig
@@ -110,13 +110,34 @@ class LogViewerWidget(Static):
         self.update("\n".join(lines))
 
 
+class TaskControlPanel(Container):
+    """タスク入力とワーカー起動のコントロールパネル"""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    def compose(self) -> ComposeResult:
+        """UIコンポーネントを構築"""
+        with Vertical():
+            yield Label("[bold]タスクコントロール[/bold]")
+            yield Input(placeholder="タスクを入力...", id="task_input")
+            with Horizontal():
+                yield Label("ワーカー数:", classes="label")
+                yield Select(
+                    [(f"{i} Workers", i) for i in range(1, 9)],
+                    value=3,
+                    id="num_workers",
+                )
+                yield Button("起動", id="launch_task", variant="primary")
+
+
 class Dashboard(App):
     """Main Textual dashboard"""
 
     CSS = """
     Screen {
         layout: grid;
-        grid-size: 3 4;
+        grid-size: 3 5;
         grid-gutter: 1;
         padding: 1;
     }
@@ -148,6 +169,13 @@ class Dashboard(App):
         padding: 1;
     }
 
+    #task_control {
+        column-span: 3;
+        border: solid white;
+        padding: 1;
+        height: auto;
+    }
+
     #log_viewer {
         column-span: 3;
         border: solid cyan;
@@ -157,6 +185,11 @@ class Dashboard(App):
 
     Button {
         margin: 1;
+    }
+
+    #task_input {
+        width: 100%;
+        margin-bottom: 1;
     }
     """
 
@@ -257,6 +290,11 @@ class Dashboard(App):
         self.activity_widget = AgentActivityWidget(id="activity")
         yield self.activity_widget
 
+        # タスクコントロールパネル（グリッドモードの場合のみ表示）
+        if self.tmux_manager and self.tmux_manager.use_grid_layout:
+            self.task_control_panel = TaskControlPanel(id="task_control")
+            yield self.task_control_panel
+
         # ログビューアー
         self.log_viewer_widget = LogViewerWidget(id="log_viewer")
         yield self.log_viewer_widget
@@ -355,6 +393,40 @@ class Dashboard(App):
 
         if self.agent_status_widget:
             self.agent_status_widget.refresh_display()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        """ボタンクリックイベントハンドラー"""
+        button_id = event.button.id
+
+        if button_id != "launch_task":
+            return
+
+        # タスク入力フィールドから値を取得
+        task_input = self.query_one("#task_input", Input)
+        task_description = task_input.value.strip()
+
+        if not task_description:
+            if self.log_viewer_widget:
+                self.log_viewer_widget.add_log("⚠ タスクを入力してください")
+            return
+
+        # ワーカー数をSelectから取得
+        num_workers_select = self.query_one("#num_workers", Select)
+        num_workers = num_workers_select.value
+
+        # タスクをログに記録
+        if self.log_viewer_widget:
+            self.log_viewer_widget.add_log(f"🚀 タスク起動: {num_workers}ワーカー")
+
+        # マルチワーカーでタスク実行
+        self.spawn_multi_agents(
+            task_description=task_description,
+            num_workers=num_workers,
+            model=self.initial_model,
+        )
+
+        # 入力フィールドをクリア
+        task_input.value = ""
 
     def spawn_agent(self, role_name: str, task: dict, prompt: str, model: str = "claude-sonnet-4-20250514") -> Optional[str]:
         """エージェントを起動（ヘッドレス）
