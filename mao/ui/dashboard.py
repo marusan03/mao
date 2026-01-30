@@ -18,6 +18,7 @@ from mao.orchestrator.agent_executor import AgentExecutor
 from mao.orchestrator.agent_executor import AgentProcess as APIAgentProcess
 from mao.orchestrator.claude_code_executor import ClaudeCodeExecutor
 from mao.orchestrator.claude_code_executor import AgentProcess as ClaudeAgentProcess
+from typing import Union
 from mao.ui.widgets.progress_widget import (
     TaskProgressWidget as EnhancedTaskProgressWidget,
     AgentActivityWidget,
@@ -405,7 +406,7 @@ class Dashboard(App):
 
         return agent_id
 
-    async def _run_agent(self, agent_id: str, process: AgentProcess):
+    async def _run_agent(self, agent_id: str, process: Union[APIAgentProcess, ClaudeAgentProcess]):
         """エージェントをバックグラウンドで実行"""
         try:
             # 活動ログ：開始
