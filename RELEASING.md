@@ -48,15 +48,37 @@ git push origin main
 git push origin v0.2.0
 ```
 
-### 4. GitHub Release の作成（オプション）
+### 4. リリースノートの生成
+
+リリースノートを自動生成：
+
+```bash
+python scripts/generate_release_notes.py v0.2.0 v0.1.0 > release-notes.md
+```
+
+このスクリプトは：
+- CHANGELOG.md から該当バージョンのエントリを抽出
+- テンプレートに埋め込み
+- GitHub Release 用のマークダウンを生成
+
+### 5. GitHub Release の作成
 
 GitHub の Releases ページで新しいリリースを作成：
 
 1. https://github.com/marusan03/mao/releases/new にアクセス
 2. タグを選択: `v0.2.0`
 3. リリースタイトル: `MAO v0.2.0`
-4. CHANGELOG.md の内容をコピーして説明に貼り付け
+4. 生成したリリースノートをコピーして説明に貼り付け
 5. "Publish release" をクリック
+
+または CLI で：
+
+```bash
+# GitHub CLI (gh) を使用
+gh release create v0.2.0 \
+  --title "MAO v0.2.0" \
+  --notes-file release-notes.md
+```
 
 ## ユーザーへのアップデート提供
 
