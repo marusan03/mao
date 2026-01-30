@@ -4,6 +4,7 @@ Main Textual dashboard
 from pathlib import Path
 from typing import Optional
 import time
+import asyncio
 
 from textual.app import App, ComposeResult
 from textual.containers import Container, Vertical, Horizontal
@@ -13,6 +14,7 @@ from textual.binding import Binding
 from mao.orchestrator.project_loader import ProjectConfig
 from mao.orchestrator.tmux_manager import TmuxManager
 from mao.orchestrator.agent_logger import AgentLogger
+from mao.orchestrator.agent_executor import AgentExecutor, AgentProcess
 
 
 class AgentStatusWidget(Static):
@@ -162,6 +164,13 @@ class Dashboard(App):
         self.log_dir = project_path / ".mao" / "logs"
         self.log_dir.mkdir(parents=True, exist_ok=True)
 
+        # エージェント実行エンジン
+        try:
+            self.executor = AgentExecutor()
+        except ValueError:
+            self.executor = None
+            # API key がない場合はログに記録（起動後）
+
         # ウィジェット参照
         self.agent_status_widget = None
         self.log_viewer_widget = None
@@ -204,6 +213,11 @@ class Dashboard(App):
             if self.tmux_manager:
                 self.log_viewer_widget.add_log("tmux監視が有効です")
 
+            if not self.executor:
+                self.log_viewer_widget.add_log(
+                    "⚠ ANTHROPIC_API_KEY が設定されていません。エージェント実行は無効です"
+                )
+
     def action_refresh(self) -> None:
         """画面をリフレッシュ"""
         if self.log_viewer_widget:
@@ -212,8 +226,25 @@ class Dashboard(App):
         if self.agent_status_widget:
             self.agent_status_widget.refresh_display()
 
-    def spawn_agent(self, role_name: str, task: dict) -> str:
-        """エージェントを起動（ヘッドレス）"""
+    def spawn_agent(self, role_name: str, task: dict, prompt: str, model: str = "claude-sonnet-4-20250514") -> Optional[str]:
+        """エージェントを起動（ヘッドレス）
+
+        Args:
+            role_name: ロール名
+            task: タスク情報
+            prompt: エージェントプロンプト
+            model: 使用するモデル
+
+        Returns:
+            エージェントID（失敗時はNone）
+        """
+        if not self.executor:
+            if self.log_viewer_widget:
+                self.log_viewer_widget.add_log(
+                    "⚠ エージェント実行エンジンが利用できません（API key未設定）"
+                )
+            return None
+
         agent_id = f"{role_name}-{int(time.time())}"
 
         # エージェント専用ロガー作成
@@ -234,18 +265,54 @@ class Dashboard(App):
         # ステータス更新
         if self.agent_status_widget:
             self.agent_status_widget.update_status(
-                agent_id, "ACTIVE", task.get("description", "")
+                agent_id, "THINKING", task.get("description", "")
             )
+
+        # エージェントプロセス作成
+        agent_process = AgentProcess(
+            agent_id=agent_id,
+            role_name=role_name,
+            prompt=prompt,
+            model=model,
+            logger=agent_logger,
+            executor=self.executor,
+        )
 
         # エージェント情報を保存
         self.agents[agent_id] = {
             "role": role_name,
             "logger": agent_logger,
             "task": task,
+            "process": agent_process,
         }
 
-        # TODO: 実際のエージェント起動処理
-        # agent_logger.info(f"Starting {role_name} agent")
-        # agent_logger.thinking("Analyzing task...")
+        # バックグラウンドで起動
+        asyncio.create_task(self._run_agent(agent_id, agent_process))
 
         return agent_id
+
+    async def _run_agent(self, agent_id: str, process: AgentProcess):
+        """エージェントをバックグラウンドで実行"""
+        try:
+            result = await process.start()
+
+            # ステータス更新
+            if self.agent_status_widget:
+                if result.get("success"):
+                    self.agent_status_widget.update_status(agent_id, "IDLE", "完了")
+                else:
+                    self.agent_status_widget.update_status(agent_id, "ERROR", "エラー")
+
+            # ログ更新
+            if self.log_viewer_widget:
+                if result.get("success"):
+                    self.log_viewer_widget.add_log(f"✓ {agent_id} が完了しました")
+                else:
+                    self.log_viewer_widget.add_log(f"✗ {agent_id} がエラーで終了しました")
+
+        except Exception as e:
+            if self.agent_status_widget:
+                self.agent_status_widget.update_status(agent_id, "ERROR", str(e))
+
+            if self.log_viewer_widget:
+                self.log_viewer_widget.add_log(f"✗ {agent_id} で例外発生: {str(e)}")

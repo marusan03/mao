@@ -72,6 +72,16 @@ cd mao
 
 ## Quick Start
 
+### Setup API Key
+
+MAO uses Claude API to power its agents. Set your API key:
+
+```bash
+export ANTHROPIC_API_KEY=your-api-key-here
+```
+
+### Initialize Project
+
 ```bash
 # Initialize in your project
 cd /path/to/your/project
@@ -82,6 +92,21 @@ mao start
 
 # (Optional) View agent logs in another terminal
 tmux attach -t mao
+```
+
+### Test Agent Execution
+
+Simple test to verify setup:
+
+```bash
+cd mao
+python examples/test_agent.py
+```
+
+For streaming responses:
+
+```bash
+python examples/test_agent_streaming.py
 ```
 
 ## Usage
@@ -226,6 +251,82 @@ All skills undergo automated security review:
 - 🔴 **REJECTED**: Hardcoded credentials, arbitrary code execution, destructive commands
 - 🟡 **WARNING**: Package installation, file deletion, network access (requires approval)
 - ✅ **SAFE**: Read-only operations, new file creation
+
+## Agent Execution Engine
+
+MAO uses Claude API directly for agent execution. Each agent runs as an asynchronous process with streaming support.
+
+### Architecture
+
+```
+Dashboard (Textual UI)
+    ↓
+AgentExecutor (Anthropic SDK)
+    ↓
+Multiple Agents (Parallel Execution)
+├── Planner
+├── Auditor
+├── Coder x3
+└── Reviewer
+    ↓
+Logs → tmux panes (monitoring)
+```
+
+### Features
+
+- **Async Execution**: Non-blocking parallel agent execution
+- **Streaming Support**: Real-time response streaming
+- **Token Tracking**: Automatic usage and cost calculation
+- **Logging**: Per-agent detailed logs
+- **Error Handling**: Robust error recovery
+
+### Example Usage
+
+```python
+from mao.orchestrator.agent_executor import AgentExecutor
+from mao.orchestrator.agent_logger import AgentLogger
+
+# Initialize
+executor = AgentExecutor()
+logger = AgentLogger("agent-001", "TestAgent", log_dir)
+
+# Execute agent
+result = await executor.execute_agent(
+    prompt="Your task here",
+    model="claude-sonnet-4-20250514",
+    logger=logger,
+)
+
+# Or with streaming
+async for event in executor.execute_agent_streaming(
+    prompt="Your task here",
+    model="claude-sonnet-4-20250514",
+    logger=logger,
+):
+    if event["type"] == "content":
+        print(event["content"], end="", flush=True)
+```
+
+### Supported Models
+
+- **Opus** (`claude-opus-4-20250514`): Most capable, highest cost
+- **Sonnet** (`claude-sonnet-4-20250514`): Balanced performance and cost (default)
+- **Haiku** (`claude-haiku-4-20250514`): Fast and economical
+
+### Configuration
+
+Set your API key in environment:
+
+```bash
+export ANTHROPIC_API_KEY=your-api-key-here
+```
+
+Or in `.mao/config.yaml`:
+
+```yaml
+api:
+  anthropic_key: your-api-key-here  # Not recommended for security
+```
 
 ## Development
 

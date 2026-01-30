@@ -3,7 +3,11 @@ Task dispatcher for launching agents
 """
 import yaml
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict, Any, Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from mao.orchestrator.agent_executor import AgentExecutor
+    from mao.orchestrator.agent_logger import AgentLogger
 
 
 class TaskDispatcher:
@@ -124,20 +128,50 @@ class TaskDispatcher:
 """
         return full_prompt
 
-    async def dispatch_task(self, role_name: str, task: Dict) -> Dict[str, Any]:
-        """タスクを該当ロールのエージェントにディスパッチ"""
+    async def dispatch_task(
+        self,
+        role_name: str,
+        task: Dict,
+        executor: Optional["AgentExecutor"] = None,
+        logger: Optional["AgentLogger"] = None,
+    ) -> Dict[str, Any]:
+        """タスクを該当ロールのエージェントにディスパッチ
+
+        Args:
+            role_name: ロール名
+            task: タスク情報
+            executor: エージェント実行エンジン（オプション）
+            logger: エージェントロガー（オプション）
+
+        Returns:
+            実行結果またはエージェント設定
+        """
         role = self.roles[role_name]
         prompt = self.build_agent_prompt(role_name, task)
 
-        # Claude Code の Task tool を呼び出す形をシミュレート
-        # 実際にはClaude Code APIまたはCLIを通じて呼び出す
+        # モデル名変換
+        model_mapping = {
+            "opus": "claude-opus-4-20250514",
+            "sonnet": "claude-sonnet-4-20250514",
+            "haiku": "claude-haiku-4-20250514",
+        }
+        model = model_mapping.get(role.get("model", "sonnet"), "claude-sonnet-4-20250514")
+
         agent_config = {
-            "subagent_type": role["subagent_type"],
-            "model": role.get("model", "sonnet"),
-            "description": f"{role['display_name']} - {task['description'][:50]}",
+            "role_name": role_name,
+            "display_name": role["display_name"],
+            "model": model,
             "prompt": prompt,
+            "task": task,
         }
 
-        # TODO: ここで実際にTaskを起動
-        # 例: claude_code.task(**agent_config)
+        # エグゼキューターが提供されている場合は実行
+        if executor:
+            result = await executor.execute_agent(
+                prompt=prompt,
+                model=model,
+                logger=logger,
+            )
+            agent_config["result"] = result
+
         return agent_config
