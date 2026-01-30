@@ -117,6 +117,7 @@ def main():
 
 
 @main.command()
+@click.argument("prompt", required=False)
 @click.option(
     "--project-dir",
     "-p",
@@ -142,16 +143,42 @@ def main():
 )
 @click.option(
     "--tmux-layout",
-    type=click.Choice(["tiled", "horizontal", "vertical", "main-horizontal", "main-vertical"]),
+    type=click.Choice(["tiled", "horizontal", "vertical", "main-horizontal", "main-vertical", "grid"]),
     default="tiled",
-    help="tmux layout style",
+    help="tmux layout style (grid for 3x3 multi-agent layout)",
+)
+@click.option(
+    "--grid",
+    is_flag=True,
+    help="Use 3x3 grid layout for multi-agent execution (shorthand for --tmux-layout=grid)",
+)
+@click.option(
+    "--task",
+    "-t",
+    help="Initial task prompt (alternative to positional argument)",
+)
+@click.option(
+    "--role",
+    default="general",
+    help="Agent role for the initial task (default: general)",
+)
+@click.option(
+    "--model",
+    default="sonnet",
+    type=click.Choice(["sonnet", "opus", "haiku"]),
+    help="Model to use for the initial task (default: sonnet)",
 )
 def start(
+    prompt: Optional[str],
     project_dir: str,
     redis_url: str,
     no_redis: bool,
     tmux: bool,
     tmux_layout: str,
+    grid: bool,
+    task: Optional[str],
+    role: str,
+    model: str,
 ):
     """Start the Multi-Agent Orchestrator dashboard"""
     project_path = Path(project_dir).resolve()
@@ -173,20 +200,32 @@ def start(
 
     console.print(f"[dim]Configuration loaded from {config.config_file}[/dim]")
 
+    # 初期プロンプトの処理
+    initial_prompt = prompt or task
+    if initial_prompt:
+        console.print(f"[cyan]Initial task:[/cyan] {initial_prompt}")
+        console.print(f"[dim]Role: {role}, Model: {model}[/dim]")
+
     # tmux設定
     tmux_manager = None
+    use_grid = grid or tmux_layout == "grid"
+
     if tmux:
         from mao.orchestrator.tmux_manager import TmuxManager
 
-        tmux_manager = TmuxManager()
+        tmux_manager = TmuxManager(use_grid_layout=use_grid)
 
         if not tmux_manager.is_tmux_available():
             console.print("[yellow]⚠ tmux not found, running without tmux monitor[/yellow]")
             tmux_manager = None
         else:
             if tmux_manager.create_session():
-                tmux_manager.set_layout(tmux_layout)
-                console.print(f"[green]✓ tmux session created[/green]")
+                if use_grid:
+                    console.print(f"[green]✓ tmux session created (3x3 grid layout)[/green]")
+                    console.print(f"  Manager + 8 Workers ready")
+                else:
+                    tmux_manager.set_layout(tmux_layout)
+                    console.print(f"[green]✓ tmux session created[/green]")
                 console.print(f"  View agents: [cyan]tmux attach -t mao[/cyan]")
             else:
                 tmux_manager = None
@@ -194,12 +233,23 @@ def start(
     # ダッシュボード起動
     from mao.ui.dashboard import Dashboard
 
+    # モデル名をAPIモデルIDに変換
+    model_map = {
+        "sonnet": "claude-sonnet-4-20250514",
+        "opus": "claude-opus-4-20250514",
+        "haiku": "claude-3-5-haiku-20241022",
+    }
+    model_id = model_map.get(model, "claude-sonnet-4-20250514")
+
     app = Dashboard(
         project_path=project_path,
         config=config,
         use_redis=not no_redis,
         redis_url=redis_url if not no_redis else None,
         tmux_manager=tmux_manager,
+        initial_prompt=initial_prompt,
+        initial_role=role,
+        initial_model=model_id,
     )
 
     try:

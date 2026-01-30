@@ -172,6 +172,9 @@ class Dashboard(App):
         use_redis: bool = True,
         redis_url: Optional[str] = None,
         tmux_manager: Optional[TmuxManager] = None,
+        initial_prompt: Optional[str] = None,
+        initial_role: str = "general",
+        initial_model: str = "claude-sonnet-4-20250514",
     ):
         super().__init__()
         self.project_path = project_path
@@ -179,6 +182,9 @@ class Dashboard(App):
         self.use_redis = use_redis
         self.redis_url = redis_url
         self.tmux_manager = tmux_manager
+        self.initial_prompt = initial_prompt
+        self.initial_role = initial_role
+        self.initial_model = initial_model
         self.agents = {}
 
         # ログディレクトリ
@@ -311,6 +317,23 @@ class Dashboard(App):
                 self.activity_widget.add_activity(
                     "system", "ダッシュボード起動（エージェント実行無効）", "warning"
                 )
+
+        # 初期プロンプトがあればエージェントを起動
+        if self.initial_prompt:
+            if self.log_viewer_widget:
+                self.log_viewer_widget.add_log(f"初期タスクを開始: {self.initial_prompt[:50]}...")
+
+            task_info = {
+                "description": self.initial_prompt,
+                "role": self.initial_role,
+            }
+
+            self.spawn_agent(
+                role_name=self.initial_role,
+                task=task_info,
+                prompt=self.initial_prompt,
+                model=self.initial_model,
+            )
 
     def action_refresh(self) -> None:
         """画面をリフレッシュ"""
