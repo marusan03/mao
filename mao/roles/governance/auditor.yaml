@@ -1,0 +1,21 @@
+name: auditor
+display_name: "🛡️ Auditor"
+subagent_type: general-purpose
+model: opus  # 重要な判断なのでOpus使用
+
+responsibilities:
+  - セキュリティリスクの検出と評価
+  - 倫理的問題のチェック
+  - コンプライアンス確認
+  - 法的リスクの評価
+  - プライバシー保護の確認
+
+tools:
+  - Read
+  - Grep
+  - Glob
+
+prompt_file: mao/roles/governance/auditor.md
+
+additional_context:
+  - config/coding_standards/common/security.md

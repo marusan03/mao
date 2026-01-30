@@ -1,0 +1,22 @@
+name: reviewer
+display_name: "👁️ Code Reviewer"
+subagent_type: general-purpose
+model: sonnet
+
+responsibilities:
+  - コードレビュー
+  - コード品質チェック
+  - ベストプラクティス確認
+  - リファクタリング提案
+  - パフォーマンスレビュー
+
+tools:
+  - Read
+  - Grep
+  - Glob
+
+prompt_file: mao/roles/quality/reviewer.md
+
+coding_standards:
+  - config/coding_standards/python/style_guide.md
+  - config/coding_standards/python/best_practices.md

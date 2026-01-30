@@ -1,0 +1,30 @@
+name: coder_backend
+display_name: "💻 Backend Coder"
+subagent_type: general-purpose
+model: sonnet
+
+responsibilities:
+  - バックエンドコードの実装
+  - API エンドポイントの作成
+  - データベース処理の実装
+  - ビジネスロジックの実装
+  - テストコードの作成
+
+tools:
+  - Read
+  - Write
+  - Edit
+  - Grep
+  - Glob
+  - Bash
+
+prompt_file: mao/roles/development/coder_backend.md
+
+# 言語設定を読み込み
+language_config: config/languages/python.yaml
+
+# コーディング規約を読み込み
+coding_standards:
+  - config/coding_standards/python/style_guide.md
+  - config/coding_standards/python/best_practices.md
+  - config/coding_standards/python/security.md

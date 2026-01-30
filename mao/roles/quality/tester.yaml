@@ -1,0 +1,21 @@
+name: tester
+display_name: "🧪 Tester"
+subagent_type: general-purpose
+model: sonnet
+
+responsibilities:
+  - テストケースの作成
+  - テストコードの実装
+  - テストの実行
+  - テストカバレッジの確認
+  - バグの検出と報告
+
+tools:
+  - Read
+  - Write
+  - Edit
+  - Grep
+  - Glob
+  - Bash
+
+prompt_file: mao/roles/quality/tester.md

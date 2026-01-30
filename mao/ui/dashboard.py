@@ -29,10 +29,10 @@ class AgentStatusWidget(Static):
 
     def refresh_display(self):
         """表示を更新"""
-        lines = ["[bold]Agent Status[/bold]\n"]
+        lines = ["[bold]エージェント状態[/bold]\n"]
 
         if not self.agents:
-            lines.append("[dim]No active agents[/dim]")
+            lines.append("[dim]稼働中のエージェントはありません[/dim]")
         else:
             for agent_id, info in self.agents.items():
                 status_color = {
@@ -42,10 +42,17 @@ class AgentStatusWidget(Static):
                     "ERROR": "red",
                 }.get(info["status"], "white")
 
+                status_text = {
+                    "ACTIVE": "実行中",
+                    "THINKING": "思考中",
+                    "IDLE": "待機中",
+                    "ERROR": "エラー",
+                }.get(info["status"], info["status"])
+
                 lines.append(f"[{status_color}]●[/{status_color}] {agent_id}")
-                lines.append(f"  Status: {info['status']}")
+                lines.append(f"  状態: {status_text}")
                 if info["task"]:
-                    lines.append(f"  Task: {info['task']}")
+                    lines.append(f"  タスク: {info['task']}")
                 lines.append("")
 
         self.update("\n".join(lines))
@@ -58,8 +65,8 @@ class TaskProgressWidget(Static):
         super().__init__(*args, **kwargs)
 
     def compose(self) -> ComposeResult:
-        yield Label("[bold]Task Progress[/bold]")
-        yield Label("\nOverall: [dim]No active tasks[/dim]")
+        yield Label("[bold]タスク進捗[/bold]")
+        yield Label("\n全体: [dim]実行中のタスクはありません[/dim]")
 
 
 class LogViewerWidget(Static):
@@ -82,9 +89,9 @@ class LogViewerWidget(Static):
 
     def refresh_display(self):
         """表示を更新"""
-        lines = ["[bold]Activity Log[/bold]\n"]
+        lines = ["[bold]アクティビティログ[/bold]\n"]
         if not self.logs:
-            lines.append("[dim]No activity yet[/dim]")
+            lines.append("[dim]まだアクティビティがありません[/dim]")
         else:
             lines.extend(self.logs[-20:])  # 最新20件を表示
 
@@ -173,8 +180,8 @@ class Dashboard(App):
         # 承認パネル
         approval_panel = Container(id="approval_panel")
         with approval_panel:
-            yield Label("[bold]Approval Panel[/bold]")
-            yield Label("\n[dim]No pending approvals[/dim]")
+            yield Label("[bold]承認パネル[/bold]")
+            yield Label("\n[dim]承認待ちの項目はありません[/dim]")
 
         yield approval_panel
 
@@ -186,21 +193,21 @@ class Dashboard(App):
 
     def on_mount(self) -> None:
         """アプリケーション起動時の処理"""
-        self.title = f"MAO Dashboard - {self.config.project_name}"
+        self.title = f"MAO ダッシュボード - {self.config.project_name}"
 
         # 起動ログ
         if self.log_viewer_widget:
-            self.log_viewer_widget.add_log("Dashboard started")
-            self.log_viewer_widget.add_log(f"Project: {self.config.project_name}")
-            self.log_viewer_widget.add_log(f"Language: {self.config.default_language}")
+            self.log_viewer_widget.add_log("ダッシュボードを起動しました")
+            self.log_viewer_widget.add_log(f"プロジェクト: {self.config.project_name}")
+            self.log_viewer_widget.add_log(f"言語: {self.config.default_language}")
 
             if self.tmux_manager:
-                self.log_viewer_widget.add_log("tmux monitoring enabled")
+                self.log_viewer_widget.add_log("tmux監視が有効です")
 
     def action_refresh(self) -> None:
         """画面をリフレッシュ"""
         if self.log_viewer_widget:
-            self.log_viewer_widget.add_log("Dashboard refreshed")
+            self.log_viewer_widget.add_log("ダッシュボードを更新しました")
 
         if self.agent_status_widget:
             self.agent_status_widget.refresh_display()
@@ -222,7 +229,7 @@ class Dashboard(App):
 
         # ログに記録
         if self.log_viewer_widget:
-            self.log_viewer_widget.add_log(f"Spawned agent: {agent_id}")
+            self.log_viewer_widget.add_log(f"エージェントを起動しました: {agent_id}")
 
         # ステータス更新
         if self.agent_status_widget:

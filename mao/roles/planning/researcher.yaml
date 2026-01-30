@@ -1,0 +1,20 @@
+name: researcher
+display_name: "🔍 Researcher"
+subagent_type: general-purpose
+model: sonnet
+
+responsibilities:
+  - 技術調査とリサーチ
+  - ライブラリ・フレームワークの選定
+  - ベストプラクティスの調査
+  - 既存実装の調査
+  - 依存関係の調査
+
+tools:
+  - Read
+  - Grep
+  - Glob
+  - WebFetch
+  - WebSearch
+
+prompt_file: mao/roles/planning/researcher.md
