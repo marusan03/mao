@@ -193,6 +193,26 @@ Describe your system architecture here.
 Document key architectural decisions here.
 """)
 
+    # サンプルカスタムコーディング規約
+    custom_standards_file = mao_dir / "coding_standards" / "python_custom.md"
+    if not custom_standards_file.exists() or force:
+        custom_standards_file.write_text("""# プロジェクト固有のPythonコーディング規約
+
+## API エンドポイント
+
+- すべてのAPIエンドポイントは `/api/v1/` プレフィックスを使用
+- RESTful な命名規則に従う
+
+## エラーハンドリング
+
+- カスタム例外クラスを使用
+- すべてのエラーを structlog でログ記録
+
+## その他
+
+プロジェクト固有のルールをここに追加してください。
+""")
+
     # .gitignore 追加
     gitignore = project_path / ".gitignore"
     gitignore_content = "\n# Multi-Agent Orchestrator\n.mao/state.db\n.mao/*.log\n.mao/logs/\n"
@@ -289,6 +309,78 @@ def uninstall(yes: bool):
     console.print("\n[green]MAO has been uninstalled[/green]\n")
     console.print("[dim]Note: You may want to remove the PATH entry from your shell configuration[/dim]")
     console.print("[dim]Project .mao directories can be manually deleted if needed[/dim]\n")
+
+
+@main.command()
+@click.argument("language", required=False)
+def languages(language: Optional[str]):
+    """List supported languages or show language details"""
+    from mao.config import ConfigLoader
+    from rich.table import Table
+
+    config_loader = ConfigLoader()
+
+    if language:
+        # 特定言語の詳細表示
+        lang_config = config_loader.load_language_config(language)
+        if not lang_config:
+            console.print(f"[red]Language '{language}' not found[/red]")
+            console.print("\nRun 'mao languages' to see available languages")
+            sys.exit(1)
+
+        console.print(f"\n[bold cyan]{lang_config.name}[/bold cyan]\n")
+
+        # ツール
+        if lang_config.tools:
+            console.print("[bold]推奨ツール:[/bold]")
+            if lang_config.formatter:
+                console.print(f"  • フォーマッター: [green]{lang_config.formatter}[/green]")
+            if lang_config.linter:
+                console.print(f"  • リンター: [green]{lang_config.linter}[/green]")
+            if lang_config.test_framework:
+                console.print(f"  • テストフレームワーク: [green]{lang_config.test_framework}[/green]")
+            console.print()
+
+        # デフォルト設定
+        if lang_config.defaults:
+            console.print("[bold]デフォルト設定:[/bold]")
+            for key, value in lang_config.defaults.items():
+                console.print(f"  • {key}: [cyan]{value}[/cyan]")
+            console.print()
+
+        # ファイル拡張子
+        if lang_config.file_extensions:
+            exts = ", ".join(lang_config.file_extensions)
+            console.print(f"[bold]ファイル拡張子:[/bold] {exts}\n")
+
+    else:
+        # 言語一覧表示
+        languages_list = config_loader.list_available_languages()
+
+        if not languages_list:
+            console.print("[yellow]No languages configured[/yellow]")
+            return
+
+        table = Table(title="サポートされている言語")
+        table.add_column("言語", style="cyan")
+        table.add_column("フォーマッター", style="green")
+        table.add_column("リンター", style="yellow")
+        table.add_column("テストフレームワーク", style="magenta")
+
+        for lang_name in languages_list:
+            lang_config = config_loader.load_language_config(lang_name)
+            if lang_config:
+                table.add_row(
+                    lang_config.name,
+                    lang_config.formatter or "-",
+                    lang_config.linter or "-",
+                    lang_config.test_framework or "-",
+                )
+
+        console.print()
+        console.print(table)
+        console.print(f"\n[dim]詳細を表示: mao languages <language>[/dim]")
+        console.print(f"[dim]例: mao languages python[/dim]\n")
 
 
 # Skills management commands

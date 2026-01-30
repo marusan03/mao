@@ -119,6 +119,8 @@ mao start             # Start the orchestrator dashboard
 mao start --no-tmux   # Start without tmux monitoring
 mao config            # Show current configuration
 mao roles             # List available agent roles
+mao languages         # List supported languages
+mao languages python  # Show Python language details
 mao uninstall         # Uninstall MAO
 mao --help            # Show help
 ```
@@ -158,19 +160,31 @@ state:
 
 ### Language Configuration
 
-Pre-configured for:
-- Python (PEP 8, Black, Ruff, mypy)
-- TypeScript
-- JavaScript
-- Go
-- Rust
+MAO comes with pre-configured language settings for:
+- **Python** (PEP 8, Black, Ruff, mypy)
+- **TypeScript** (Prettier, ESLint, Airbnb style)
+- **JavaScript** (Prettier, ESLint)
+- **Go** (gofmt, golangci-lint, Effective Go)
+- **Rust** (rustfmt, clippy)
+
+Each language configuration includes:
+- Recommended tools (formatter, linter, test framework)
+- Default settings (line length, indent size, etc.)
+- Coding standards references
+- File extensions
+
+View available languages:
+```bash
+mao languages           # List all supported languages
+mao languages python    # Show Python configuration details
+```
 
 ### Custom Coding Standards
 
-Add your own standards in `.mao/coding_standards/`:
+Agents automatically load coding standards based on the project language. You can customize these standards by adding files to `.mao/coding_standards/`:
 
 ```markdown
-# python_custom.md
+# .mao/coding_standards/python_custom.md
 
 ## Project-Specific Rules
 
@@ -181,7 +195,17 @@ Add your own standards in `.mao/coding_standards/`:
 ### Error Handling
 - Use custom exception classes
 - Log all errors with structlog
+
+### Database
+- Use SQLAlchemy ORM
+- Migration files in alembic/versions/
 ```
+
+**How it works:**
+1. Default standards are loaded from MAO's built-in templates
+2. Project-specific standards from `.mao/coding_standards/<language>_custom.md` are merged
+3. Agents receive the combined standards in their context
+4. This ensures consistent code style across all generated code
 
 ## Skills System
 

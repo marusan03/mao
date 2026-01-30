@@ -1,0 +1,27 @@
+name: Rust
+file_extensions:
+  - .rs
+
+# 推奨ツール
+tools:
+  formatter: rustfmt
+  linter: clippy
+  test_framework: cargo test
+
+# デフォルト設定
+defaults:
+  edition: "2021"
+  indent_size: 4
+  line_length: 100
+
+# コーディング規約
+standards:
+  - rust_api_guidelines
+  - clippy_lints
+
+# 推奨ツール
+recommended_tools:
+  - rustfmt
+  - clippy
+  - cargo-audit
+  - cargo-outdated

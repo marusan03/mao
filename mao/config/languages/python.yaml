@@ -1,0 +1,36 @@
+name: Python
+file_extensions:
+  - .py
+  - .pyi
+
+# 推奨ツール
+tools:
+  formatter: black
+  linter: ruff
+  type_checker: mypy
+  test_framework: pytest
+
+# デフォルト設定
+defaults:
+  python_version: "3.11"
+  line_length: 88
+  indent_size: 4
+  use_type_hints: true
+
+# コーディング規約
+standards:
+  - pep8
+  - pep257  # docstrings
+
+# 推奨パッケージ
+recommended_packages:
+  dev:
+    - black
+    - ruff
+    - mypy
+    - pytest
+    - pytest-cov
+  typing:
+    - typing-extensions
+  logging:
+    - structlog

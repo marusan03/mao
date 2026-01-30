@@ -1,0 +1,27 @@
+name: Go
+file_extensions:
+  - .go
+
+# 推奨ツール
+tools:
+  formatter: gofmt
+  linter: golangci-lint
+  test_framework: go test
+
+# デフォルト設定
+defaults:
+  go_version: "1.21"
+  indent_size: 8  # tabs
+  use_tabs: true
+
+# コーディング規約
+standards:
+  - effective_go
+  - go_code_review_comments
+
+# 推奨ツール
+recommended_tools:
+  - gofmt
+  - goimports
+  - golangci-lint
+  - go-critic

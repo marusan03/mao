@@ -1,0 +1,32 @@
+name: JavaScript
+file_extensions:
+  - .js
+  - .jsx
+  - .mjs
+  - .cjs
+
+# 推奨ツール
+tools:
+  formatter: prettier
+  linter: eslint
+  test_framework: vitest
+
+# デフォルト設定
+defaults:
+  target: ES2022
+  line_length: 100
+  indent_size: 2
+  use_semicolons: true
+
+# コーディング規約
+standards:
+  - airbnb-base
+  - standard
+
+# 推奨パッケージ
+recommended_packages:
+  dev:
+    - eslint
+    - prettier
+    - vitest
+    - "@vitest/ui"

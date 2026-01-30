@@ -1,0 +1,36 @@
+name: TypeScript
+file_extensions:
+  - .ts
+  - .tsx
+
+# 推奨ツール
+tools:
+  formatter: prettier
+  linter: eslint
+  type_checker: tsc
+  test_framework: vitest
+
+# デフォルト設定
+defaults:
+  target: ES2022
+  module: ESNext
+  line_length: 100
+  indent_size: 2
+  strict: true
+
+# コーディング規約
+standards:
+  - airbnb-typescript
+  - typescript-eslint
+
+# 推奨パッケージ
+recommended_packages:
+  dev:
+    - typescript
+    - "@typescript-eslint/parser"
+    - "@typescript-eslint/eslint-plugin"
+    - prettier
+    - eslint
+    - vitest
+  types:
+    - "@types/node"

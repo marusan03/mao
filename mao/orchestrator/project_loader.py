@@ -6,6 +6,8 @@ from typing import Any, Dict, Optional
 import yaml
 from pydantic import BaseModel, Field
 
+from mao.config import ConfigLoader
+
 
 class AgentConfig(BaseModel):
     """Agent configuration"""
@@ -45,6 +47,8 @@ class ProjectLoader:
         self.project_path = project_path
         self.mao_dir = project_path / ".mao"
         self.config_file = self.mao_dir / "config.yaml"
+        self.config_loader = ConfigLoader()
+        self.custom_standards_dir = self.mao_dir / "coding_standards"
 
     def load(self) -> ProjectConfig:
         """Load project configuration"""
@@ -71,3 +75,21 @@ class ProjectLoader:
 
         with open(self.config_file, "w") as f:
             yaml.dump(config_data, f, default_flow_style=False, sort_keys=False)
+
+    def get_coding_standards_context(self, language: Optional[str] = None) -> str:
+        """コーディング規約のコンテキストを取得
+
+        Args:
+            language: 言語名（Noneの場合はデフォルト言語を使用）
+
+        Returns:
+            エージェントプロンプトに含めるコンテキスト
+        """
+        lang = language or self.load().default_language
+        return self.config_loader.get_language_prompt_context(
+            lang, self.custom_standards_dir
+        )
+
+    def list_available_languages(self) -> list[str]:
+        """利用可能な言語の一覧"""
+        return self.config_loader.list_available_languages()
