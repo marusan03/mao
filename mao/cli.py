@@ -15,8 +15,102 @@ from mao.version import __version__, get_git_commit
 console = Console()
 
 
+def show_version_info():
+    """Display detailed version information"""
+    from rich.table import Table
+    import platform
+    import subprocess
+
+    console.print(f"\n[bold cyan]MAO Version Information[/bold cyan]\n")
+
+    table = Table(show_header=False, box=None)
+    table.add_column("Key", style="dim")
+    table.add_column("Value", style="green")
+
+    # バージョン
+    table.add_row("Version", __version__)
+
+    # 開発モードの検出
+    current_file = Path(__file__).resolve()
+    dev_mode = False
+    dev_repo_path = None
+
+    if (current_file.parent.parent / "pyproject.toml").exists():
+        dev_repo_path = current_file.parent.parent
+        if (dev_repo_path / ".git").exists():
+            dev_mode = True
+
+    # モード表示
+    if dev_mode:
+        table.add_row("Mode", "[yellow]Development[/yellow]")
+        table.add_row("Repository", str(dev_repo_path))
+
+        # 開発リポジトリのGitコミット
+        commit = get_git_commit(dev_repo_path)
+        if commit:
+            table.add_row("Git commit", commit)
+
+        # 開発リポジトリの最終更新日時
+        import datetime
+        mtime = dev_repo_path.stat().st_mtime
+        last_modified = datetime.datetime.fromtimestamp(mtime)
+        table.add_row("Last modified", last_modified.strftime("%Y-%m-%d %H:%M:%S"))
+    else:
+        table.add_row("Mode", "[green]Installed[/green]")
+
+        # インストールパス
+        mao_home = Path.home() / ".mao"
+        if mao_home.exists():
+            table.add_row("Install path", str(mao_home))
+
+            # Git コミット
+            commit = get_git_commit()
+            if commit:
+                table.add_row("Git commit", commit)
+
+            # インストール日時
+            install_dir = mao_home / "install"
+            if install_dir.exists():
+                import datetime
+                mtime = install_dir.stat().st_mtime
+                install_time = datetime.datetime.fromtimestamp(mtime)
+                table.add_row("Installed", install_time.strftime("%Y-%m-%d %H:%M:%S"))
+
+    # Python バージョン
+    python_version = platform.python_version()
+    table.add_row("Python", python_version)
+
+    # uv バージョン
+    if shutil.which("uv"):
+        try:
+            uv_version = subprocess.check_output(
+                ["uv", "--version"], text=True, stderr=subprocess.DEVNULL
+            ).split()[1]
+            table.add_row("uv", uv_version)
+        except Exception:
+            pass
+
+    console.print(table)
+    console.print()
+
+
+def version_callback(ctx, param, value):
+    """Callback for --version option"""
+    if not value or ctx.resilient_parsing:
+        return
+    show_version_info()
+    ctx.exit()
+
+
 @click.group()
-@click.version_option(version=__version__)
+@click.option(
+    '--version', '-v',
+    is_flag=True,
+    callback=version_callback,
+    expose_value=False,
+    is_eager=True,
+    help='Show detailed version information'
+)
 def main():
     """Multi-Agent Orchestrator - Hierarchical AI development system"""
     pass
@@ -316,53 +410,7 @@ def uninstall(yes: bool):
 @main.command()
 def version():
     """Show detailed version information"""
-    from rich.table import Table
-
-    console.print(f"\n[bold cyan]MAO Version Information[/bold cyan]\n")
-
-    table = Table(show_header=False, box=None)
-    table.add_column("Key", style="dim")
-    table.add_column("Value", style="green")
-
-    # バージョン
-    table.add_row("Version", __version__)
-
-    # インストールパス
-    mao_home = Path.home() / ".mao"
-    if mao_home.exists():
-        table.add_row("Install path", str(mao_home))
-
-        # Git コミット
-        commit = get_git_commit()
-        if commit:
-            table.add_row("Git commit", commit)
-
-        # インストール日時
-        install_dir = mao_home / "install"
-        if install_dir.exists():
-            import datetime
-            mtime = install_dir.stat().st_mtime
-            install_time = datetime.datetime.fromtimestamp(mtime)
-            table.add_row("Installed", install_time.strftime("%Y-%m-%d %H:%M:%S"))
-
-    # Python バージョン
-    import platform
-    python_version = platform.python_version()
-    table.add_row("Python", python_version)
-
-    # uv バージョン
-    if shutil.which("uv"):
-        import subprocess
-        try:
-            uv_version = subprocess.check_output(
-                ["uv", "--version"], text=True, stderr=subprocess.DEVNULL
-            ).split()[1]
-            table.add_row("uv", uv_version)
-        except Exception:
-            pass
-
-    console.print(table)
-    console.print()
+    show_version_info()
 
 
 @main.command()
@@ -378,11 +426,30 @@ def update():
     console.print("\n[bold cyan]MAO Updater[/bold cyan]\n")
     console.print(f"Current version: [green]{__version__}[/green]")
 
+    # 開発モードの検出
+    current_file = Path(__file__).resolve()
+    dev_mode = False
+    dev_repo_path = None
+
+    # 現在のファイルが開発ディレクトリにある場合
+    if (current_file.parent.parent / "pyproject.toml").exists():
+        dev_repo_path = current_file.parent.parent
+        if (dev_repo_path / ".git").exists():
+            dev_mode = True
+
     # インストールディレクトリの確認
     if not MAO_INSTALL_DIR.exists():
-        console.print("[red]MAO installation directory not found[/red]")
-        console.print("Please reinstall MAO using the installer")
-        sys.exit(1)
+        if dev_mode:
+            console.print("[yellow]Running in development mode[/yellow]")
+            console.print(f"Repository: {dev_repo_path}\n")
+
+            # 開発モードでの更新処理
+            MAO_INSTALL_DIR = dev_repo_path
+            console.print("Checking for updates in development repository...")
+        else:
+            console.print("[red]MAO installation directory not found[/red]")
+            console.print("Please reinstall MAO using the installer")
+            sys.exit(1)
 
     # Gitリポジトリかどうか確認
     if (MAO_INSTALL_DIR / ".git").exists():
@@ -479,22 +546,48 @@ def update():
     # 依存関係を再インストール
     console.print("\nReinstalling dependencies...")
 
+    # 開発モードの場合は、プロジェクトディレクトリのvenvを使用
+    if dev_mode:
+        dev_venv = MAO_INSTALL_DIR / "venv"
+        if dev_venv.exists():
+            target_venv = dev_venv
+            console.print(f"[dim]Using development venv: {dev_venv}[/dim]")
+        else:
+            console.print("[yellow]Development venv not found[/yellow]")
+            console.print("Please create a virtual environment:")
+            console.print("  python -m venv venv")
+            console.print("  source venv/bin/activate  # or venv\\Scripts\\activate on Windows")
+            console.print("  pip install -e .")
+            return
+    else:
+        target_venv = MAO_VENV
+
     # uv が利用可能か確認
     if not shutil.which("uv"):
-        console.print("[red]uv not found[/red]")
-        console.print("Please install uv: curl -LsSf https://astral.sh/uv/install.sh | sh")
-        sys.exit(1)
-
-    try:
-        subprocess.run(
-            ["uv", "pip", "install", "--python", str(MAO_VENV / "bin" / "python"), "-e", str(MAO_INSTALL_DIR)],
-            check=True,
-            capture_output=True
-        )
-        console.print("[green]✓ Dependencies updated[/green]")
-    except subprocess.CalledProcessError as e:
-        console.print(f"[red]Failed to install dependencies: {e}[/red]")
-        sys.exit(1)
+        console.print("[yellow]uv not found, using pip instead[/yellow]")
+        # uv がない場合は pip を使用
+        python_exe = target_venv / "bin" / "python"
+        try:
+            subprocess.run(
+                [str(python_exe), "-m", "pip", "install", "-e", str(MAO_INSTALL_DIR)],
+                check=True,
+                capture_output=True
+            )
+            console.print("[green]✓ Dependencies updated[/green]")
+        except subprocess.CalledProcessError as e:
+            console.print(f"[red]Failed to install dependencies: {e}[/red]")
+            sys.exit(1)
+    else:
+        try:
+            subprocess.run(
+                ["uv", "pip", "install", "--python", str(target_venv / "bin" / "python"), "-e", str(MAO_INSTALL_DIR)],
+                check=True,
+                capture_output=True
+            )
+            console.print("[green]✓ Dependencies updated[/green]")
+        except subprocess.CalledProcessError as e:
+            console.print(f"[red]Failed to install dependencies: {e}[/red]")
+            sys.exit(1)
 
     # アップデート後のバージョン情報を取得
     try:
