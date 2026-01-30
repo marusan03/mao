@@ -49,17 +49,25 @@ Integration
 
 ## Installation
 
-MAO uses [uv](https://github.com/astral-sh/uv), a blazing-fast Python package manager, for dependency management. The installer will automatically install uv if it's not already present.
+MAO uses [uv](https://github.com/astral-sh/uv), a blazing-fast Python package manager, for dependency management.
+
+### Prerequisites
+
+Install uv if not already installed:
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
 
 ### Quick Install
 
 ```bash
-# One-line installer (auto-installs uv if needed)
+# One-line installer
 curl -fsSL https://raw.githubusercontent.com/marusan03/mao/main/install.sh | sh
 ```
 
 The installer will:
-- Install uv if not already installed
+- Verify uv is installed
 - Create a virtual environment at `~/.mao/venv`
 - Install MAO and all dependencies from `pyproject.toml`
 - Create executable at `~/.local/bin/mao`
@@ -122,6 +130,22 @@ For streaming responses:
 python examples/test_agent_streaming.py
 ```
 
+### Updating MAO
+
+Keep MAO up to date with the latest features and fixes:
+
+```bash
+mao update
+```
+
+The update command will:
+- Check for new commits on GitHub
+- Show you what's changed
+- Ask for confirmation before updating
+- Pull the latest changes (if installed via git)
+- Reinstall dependencies with uv
+- Preserve your project configurations
+
 ## Usage
 
 ### Commands
@@ -134,6 +158,7 @@ mao config            # Show current configuration
 mao roles             # List available agent roles
 mao languages         # List supported languages
 mao languages python  # Show Python language details
+mao update            # Update MAO to the latest version
 mao uninstall         # Uninstall MAO
 mao --help            # Show help
 ```
@@ -388,7 +413,7 @@ uv pip install -e .
 ## Requirements
 
 - Python 3.11+
-- [uv](https://github.com/astral-sh/uv) (auto-installed by installer)
+- [uv](https://github.com/astral-sh/uv) - Fast Python package manager
 - tmux (optional, for agent monitoring)
 - Redis (optional, for distributed state)
 

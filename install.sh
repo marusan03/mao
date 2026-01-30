@@ -88,19 +88,12 @@ success "Python $PYTHON_VERSION found"
 # Check uv
 info "Checking uv..."
 if ! command_exists uv; then
-    warn "uv not found - installing uv..."
-    if command_exists curl; then
-        curl -LsSf https://astral.sh/uv/install.sh | sh
-        # Source the shell config to get uv in PATH
-        export PATH="$HOME/.local/bin:$PATH"
-    else
-        error "curl is required to install uv. Please install curl first."
-    fi
+    echo ""
+    error "uv is not installed. Please install uv first:
 
-    # Verify uv installation
-    if ! command_exists uv; then
-        error "Failed to install uv. Please install manually: https://github.com/astral-sh/uv"
-    fi
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+
+Or visit: https://github.com/astral-sh/uv"
 fi
 
 UV_VERSION=$(uv --version | cut -d' ' -f2)

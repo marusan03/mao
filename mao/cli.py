@@ -312,6 +312,141 @@ def uninstall(yes: bool):
 
 
 @main.command()
+def update():
+    """Update MAO to the latest version"""
+    import subprocess
+    from pathlib import Path
+
+    MAO_HOME = Path.home() / ".mao"
+    MAO_INSTALL_DIR = MAO_HOME / "install"
+    MAO_VENV = MAO_HOME / "venv"
+
+    console.print("\n[bold cyan]MAO Updater[/bold cyan]\n")
+
+    # インストールディレクトリの確認
+    if not MAO_INSTALL_DIR.exists():
+        console.print("[red]MAO installation directory not found[/red]")
+        console.print("Please reinstall MAO using the installer")
+        sys.exit(1)
+
+    # Gitリポジトリかどうか確認
+    if (MAO_INSTALL_DIR / ".git").exists():
+        console.print("Checking for updates...")
+
+        # 現在のコミット
+        current_commit = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"],
+            cwd=MAO_INSTALL_DIR,
+            text=True
+        ).strip()
+
+        # リモートから最新情報を取得
+        try:
+            subprocess.run(
+                ["git", "fetch", "origin", "main"],
+                cwd=MAO_INSTALL_DIR,
+                check=True,
+                capture_output=True
+            )
+        except subprocess.CalledProcessError:
+            console.print("[red]Failed to fetch updates from GitHub[/red]")
+            sys.exit(1)
+
+        # 最新のコミット
+        latest_commit = subprocess.check_output(
+            ["git", "rev-parse", "origin/main"],
+            cwd=MAO_INSTALL_DIR,
+            text=True
+        ).strip()
+
+        if current_commit == latest_commit:
+            console.print("[green]✓ Already up to date[/green]")
+            console.print(f"[dim]Commit: {current_commit[:8]}[/dim]\n")
+            return
+
+        # 変更内容を表示
+        console.print("\n[yellow]New commits available:[/yellow]\n")
+        log_output = subprocess.check_output(
+            ["git", "log", "--oneline", f"{current_commit}..{latest_commit}"],
+            cwd=MAO_INSTALL_DIR,
+            text=True
+        )
+        console.print(log_output)
+
+        # 確認
+        confirm = console.input("[yellow]Update to latest version?[/yellow] (y/N): ")
+        if confirm.lower() != "y":
+            console.print("Update cancelled")
+            return
+
+        # git pull
+        console.print("\nUpdating...")
+        try:
+            subprocess.run(
+                ["git", "pull", "origin", "main"],
+                cwd=MAO_INSTALL_DIR,
+                check=True,
+                capture_output=True
+            )
+            console.print("[green]✓ Downloaded updates[/green]")
+        except subprocess.CalledProcessError as e:
+            console.print(f"[red]Failed to update: {e}[/red]")
+            sys.exit(1)
+
+    else:
+        console.print("[yellow]Installation was not from git repository[/yellow]")
+        console.print("Re-downloading from GitHub...")
+
+        # ディレクトリをバックアップして削除
+        import shutil
+        backup_dir = MAO_HOME / "install.backup"
+        if backup_dir.exists():
+            shutil.rmtree(backup_dir)
+        shutil.move(str(MAO_INSTALL_DIR), str(backup_dir))
+
+        # 再ダウンロード
+        try:
+            subprocess.run(
+                ["git", "clone", "--depth", "1", "https://github.com/marusan03/mao", str(MAO_INSTALL_DIR)],
+                check=True,
+                capture_output=True
+            )
+            console.print("[green]✓ Downloaded latest version[/green]")
+        except subprocess.CalledProcessError:
+            # 失敗したらバックアップを戻す
+            shutil.move(str(backup_dir), str(MAO_INSTALL_DIR))
+            console.print("[red]Failed to download updates[/red]")
+            sys.exit(1)
+
+        # バックアップを削除
+        shutil.rmtree(backup_dir)
+
+    # 依存関係を再インストール
+    console.print("\nReinstalling dependencies...")
+
+    # uv が利用可能か確認
+    if not shutil.which("uv"):
+        console.print("[red]uv not found[/red]")
+        console.print("Please install uv: curl -LsSf https://astral.sh/uv/install.sh | sh")
+        sys.exit(1)
+
+    try:
+        subprocess.run(
+            ["uv", "pip", "install", "--python", str(MAO_VENV / "bin" / "python"), "-e", str(MAO_INSTALL_DIR)],
+            check=True,
+            capture_output=True
+        )
+        console.print("[green]✓ Dependencies updated[/green]")
+    except subprocess.CalledProcessError as e:
+        console.print(f"[red]Failed to install dependencies: {e}[/red]")
+        sys.exit(1)
+
+    console.print("\n[green]✓ Update complete![/green]\n")
+    console.print("Run [cyan]mao --version[/cyan] to verify the update")
+    console.print()
+
+
+@main.command()
 @click.argument("language", required=False)
 def languages(language: Optional[str]):
     """List supported languages or show language details"""
