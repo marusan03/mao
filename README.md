@@ -49,12 +49,21 @@ Integration
 
 ## Installation
 
+MAO uses [uv](https://github.com/astral-sh/uv), a blazing-fast Python package manager, for dependency management. The installer will automatically install uv if it's not already present.
+
 ### Quick Install
 
 ```bash
-# One-line installer
+# One-line installer (auto-installs uv if needed)
 curl -fsSL https://raw.githubusercontent.com/marusan03/mao/main/install.sh | sh
 ```
+
+The installer will:
+- Install uv if not already installed
+- Create a virtual environment at `~/.mao/venv`
+- Install MAO and all dependencies from `pyproject.toml`
+- Create executable at `~/.local/bin/mao`
+- Optionally add to your PATH
 
 ### From Source
 
@@ -63,10 +72,14 @@ curl -fsSL https://raw.githubusercontent.com/marusan03/mao/main/install.sh | sh
 git clone https://github.com/marusan03/mao.git
 cd mao
 
-# Install
+# Install (auto-installs uv if needed)
 ./install.sh
 
-# Or for development
+# Or for development with uv
+uv venv
+uv pip install -e .
+
+# Or use the development wrapper
 ./bin/mao --help
 ```
 
@@ -359,20 +372,23 @@ api:
 git clone https://github.com/marusan03/mao.git
 cd mao
 
-# Create virtual environment
-python3 -m venv venv
-source venv/bin/activate
+# Install uv if not already installed
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Create virtual environment with uv
+uv venv --python python3.11
 
 # Install in development mode
-pip install -e .
+uv pip install -e .
 
-# Or use the development wrapper
+# Or use the development wrapper (handles uv setup automatically)
 ./bin/mao --help
 ```
 
 ## Requirements
 
 - Python 3.11+
+- [uv](https://github.com/astral-sh/uv) (auto-installed by installer)
 - tmux (optional, for agent monitoring)
 - Redis (optional, for distributed state)
 

@@ -4,16 +4,20 @@
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 PROJECT_ROOT="$(dirname "${SCRIPT_DIR}")"
 
+# Check if uv is installed
+if ! command -v uv &> /dev/null; then
+    echo "Error: uv is not installed"
+    echo "Install uv: curl -LsSf https://astral.sh/uv/install.sh | sh"
+    exit 1
+fi
+
 # Check if virtual environment exists
 if [ ! -d "${PROJECT_ROOT}/venv" ]; then
-    echo "Creating virtual environment..."
-    python3 -m venv "${PROJECT_ROOT}/venv"
-    source "${PROJECT_ROOT}/venv/bin/activate"
-    echo "Installing dependencies..."
-    pip install -e "${PROJECT_ROOT}"
-else
-    source "${PROJECT_ROOT}/venv/bin/activate"
+    echo "Creating virtual environment with uv..."
+    uv venv "${PROJECT_ROOT}/venv" --python python3.11
+    echo "Installing dependencies with uv..."
+    uv pip install --python "${PROJECT_ROOT}/venv/bin/python" -e "${PROJECT_ROOT}"
 fi
 
 # Run the CLI
-python -m mao.cli "$@"
+exec "${PROJECT_ROOT}/venv/bin/python" -m mao.cli "$@"

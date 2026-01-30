@@ -2,7 +2,7 @@
 set -e
 
 # Multi-Agent Orchestrator Installer
-# Usage: curl -fsSL https://raw.githubusercontent.com/username/mao/main/install.sh | sh
+# Usage: curl -fsSL https://raw.githubusercontent.com/marusan03/mao/main/install.sh | sh
 
 # Colors
 RED='\033[0;31m'
@@ -85,6 +85,27 @@ fi
 
 success "Python $PYTHON_VERSION found"
 
+# Check uv
+info "Checking uv..."
+if ! command_exists uv; then
+    warn "uv not found - installing uv..."
+    if command_exists curl; then
+        curl -LsSf https://astral.sh/uv/install.sh | sh
+        # Source the shell config to get uv in PATH
+        export PATH="$HOME/.local/bin:$PATH"
+    else
+        error "curl is required to install uv. Please install curl first."
+    fi
+
+    # Verify uv installation
+    if ! command_exists uv; then
+        error "Failed to install uv. Please install manually: https://github.com/astral-sh/uv"
+    fi
+fi
+
+UV_VERSION=$(uv --version | cut -d' ' -f2)
+success "uv $UV_VERSION found"
+
 # Check optional dependencies
 info "Checking optional dependencies..."
 
@@ -157,17 +178,13 @@ fi
 
 success "Source location: ${INSTALL_SOURCE}"
 
-# Create virtual environment
-info "Creating virtual environment..."
-python3 -m venv "${MAO_HOME}/venv"
-source "${MAO_HOME}/venv/bin/activate"
-
-# Upgrade pip
-pip install --upgrade pip setuptools wheel >/dev/null 2>&1
+# Create virtual environment with uv
+info "Creating virtual environment with uv..."
+uv venv "${MAO_HOME}/venv" --python python3.11
 
 # Install package
-info "Installing MAO and dependencies..."
-pip install -e "${INSTALL_SOURCE}" >/dev/null 2>&1
+info "Installing MAO and dependencies with uv..."
+uv pip install --python "${MAO_HOME}/venv/bin/python" -e "${INSTALL_SOURCE}"
 success "MAO installed"
 
 # Create wrapper script
@@ -185,9 +202,8 @@ if [ ! -d "${MAO_VENV}" ]; then
     exit 1
 fi
 
-# Activate virtual environment and run
-source "${MAO_VENV}/bin/activate"
-exec python -m mao.cli "$@"
+# Run with uv venv python
+exec "${MAO_VENV}/bin/python" -m mao.cli "$@"
 WRAPPER_EOF
 
 chmod +x "${MAO_BIN}/mao"
@@ -255,6 +271,7 @@ echo "Installation Summary:"
 echo "  • Location: ${MAO_HOME}"
 echo "  • Executable: ${MAO_BIN}/mao"
 echo "  • Python: $PYTHON_VERSION"
+echo "  • uv: $UV_VERSION"
 if [ $HAS_TMUX -eq 1 ]; then
     echo "  • tmux: enabled ✓"
 else
