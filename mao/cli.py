@@ -19,7 +19,6 @@ def show_version_info():
     """Display detailed version information"""
     from rich.table import Table
     import platform
-    import subprocess
 
     console.print(f"\n[bold cyan]MAO Version Information[/bold cyan]\n")
 
@@ -43,52 +42,21 @@ def show_version_info():
     # モード表示
     if dev_mode:
         table.add_row("Mode", "[yellow]Development[/yellow]")
-        table.add_row("Repository", str(dev_repo_path))
-
-        # 開発リポジトリのGitコミット
-        commit = get_git_commit(dev_repo_path)
-        if commit:
-            table.add_row("Git commit", commit)
-
-        # 開発リポジトリの最終更新日時
-        import datetime
-        mtime = dev_repo_path.stat().st_mtime
-        last_modified = datetime.datetime.fromtimestamp(mtime)
-        table.add_row("Last modified", last_modified.strftime("%Y-%m-%d %H:%M:%S"))
     else:
         table.add_row("Mode", "[green]Installed[/green]")
 
-        # インストールパス
+        # インストール日時
         mao_home = Path.home() / ".mao"
-        if mao_home.exists():
-            table.add_row("Install path", str(mao_home))
-
-            # Git コミット
-            commit = get_git_commit()
-            if commit:
-                table.add_row("Git commit", commit)
-
-            # インストール日時
-            install_dir = mao_home / "install"
-            if install_dir.exists():
-                import datetime
-                mtime = install_dir.stat().st_mtime
-                install_time = datetime.datetime.fromtimestamp(mtime)
-                table.add_row("Installed", install_time.strftime("%Y-%m-%d %H:%M:%S"))
+        install_dir = mao_home / "install"
+        if install_dir.exists():
+            import datetime
+            mtime = install_dir.stat().st_mtime
+            install_time = datetime.datetime.fromtimestamp(mtime)
+            table.add_row("Installed", install_time.strftime("%Y-%m-%d %H:%M:%S"))
 
     # Python バージョン
     python_version = platform.python_version()
     table.add_row("Python", python_version)
-
-    # uv バージョン
-    if shutil.which("uv"):
-        try:
-            uv_version = subprocess.check_output(
-                ["uv", "--version"], text=True, stderr=subprocess.DEVNULL
-            ).split()[1]
-            table.add_row("uv", uv_version)
-        except Exception:
-            pass
 
     console.print(table)
     console.print()
@@ -474,7 +442,9 @@ def update():
     MAO_VENV = MAO_HOME / "venv"
 
     console.print("\n[bold cyan]MAO Updater[/bold cyan]\n")
-    console.print(f"Current version: [green]{__version__}[/green]")
+
+    # 現在のバージョンを保存
+    current_version = __version__
 
     # 開発モードの検出
     current_file = Path(__file__).resolve()
@@ -490,12 +460,8 @@ def update():
     # インストールディレクトリの確認
     if not MAO_INSTALL_DIR.exists():
         if dev_mode:
-            console.print("[yellow]Running in development mode[/yellow]")
-            console.print(f"Repository: {dev_repo_path}\n")
-
-            # 開発モードでの更新処理
+            console.print("[yellow]Development mode[/yellow]\n")
             MAO_INSTALL_DIR = dev_repo_path
-            console.print("Checking for updates in development repository...")
         else:
             console.print("[red]MAO installation directory not found[/red]")
             console.print("Please reinstall MAO using the installer")
@@ -503,14 +469,7 @@ def update():
 
     # Gitリポジトリかどうか確認
     if (MAO_INSTALL_DIR / ".git").exists():
-        console.print("\nChecking for updates...")
-
-        # 現在のコミット
-        current_commit = subprocess.check_output(
-            ["git", "rev-parse", "HEAD"],
-            cwd=MAO_INSTALL_DIR,
-            text=True
-        ).strip()
+        console.print("Checking for updates...\n")
 
         # リモートから最新情報を取得
         try:
@@ -521,38 +480,41 @@ def update():
                 capture_output=True
             )
         except subprocess.CalledProcessError:
-            console.print("[red]Failed to fetch updates from GitHub[/red]")
+            console.print("[red]Failed to check for updates[/red]")
             sys.exit(1)
 
-        # 最新のコミット
-        latest_commit = subprocess.check_output(
-            ["git", "rev-parse", "origin/main"],
-            cwd=MAO_INSTALL_DIR,
-            text=True
-        ).strip()
+        # 最新のバージョンを取得
+        try:
+            # origin/mainのpyproject.tomlを取得
+            import tomllib
+            pyproject_content = subprocess.check_output(
+                ["git", "show", "origin/main:pyproject.toml"],
+                cwd=MAO_INSTALL_DIR,
+                text=True
+            )
+            remote_data = tomllib.loads(pyproject_content)
+            latest_version = remote_data["project"]["version"]
+        except Exception:
+            latest_version = "unknown"
 
-        if current_commit == latest_commit:
-            console.print("[green]✓ Already up to date[/green]")
-            console.print(f"[dim]Commit: {current_commit[:8]}[/dim]\n")
+        # バージョン比較
+        if current_version == latest_version:
+            console.print(f"[green]✓ Already up to date[/green]")
+            console.print(f"Current version: [cyan]{current_version}[/cyan]\n")
             return
 
-        # 変更内容を表示
-        console.print("\n[yellow]New commits available:[/yellow]\n")
-        log_output = subprocess.check_output(
-            ["git", "log", "--oneline", f"{current_commit}..{latest_commit}"],
-            cwd=MAO_INSTALL_DIR,
-            text=True
-        )
-        console.print(log_output)
+        # アップデート可能を表示
+        console.print(f"Current version: [yellow]{current_version}[/yellow]")
+        console.print(f"Latest version:  [green]{latest_version}[/green]\n")
 
         # 確認
-        confirm = console.input("[yellow]Update to latest version?[/yellow] (y/N): ")
+        confirm = console.input(f"[yellow]Update to version {latest_version}?[/yellow] (y/N): ")
         if confirm.lower() != "y":
             console.print("Update cancelled")
             return
 
         # git pull
-        console.print("\nUpdating...")
+        console.print("\nDownloading updates...")
         try:
             subprocess.run(
                 ["git", "pull", "origin", "main"],
@@ -560,9 +522,9 @@ def update():
                 check=True,
                 capture_output=True
             )
-            console.print("[green]✓ Downloaded updates[/green]")
+            console.print("[green]✓ Downloaded[/green]")
         except subprocess.CalledProcessError as e:
-            console.print(f"[red]Failed to update: {e}[/red]")
+            console.print(f"[red]Failed to download updates[/red]")
             sys.exit(1)
 
     else:
@@ -647,18 +609,13 @@ def update():
             data = tomllib.load(f)
         new_version = data["project"]["version"]
 
-        new_commit = get_git_commit(MAO_INSTALL_DIR)
-
         console.print("\n[green]✓ Update complete![/green]\n")
-        console.print(f"Updated to version: [green]{new_version}[/green]")
-        if new_commit:
-            console.print(f"Commit: [dim]{new_commit}[/dim]")
-        console.print("\nRestart your terminal or run:")
-        console.print("  [cyan]mao version[/cyan] - to see detailed version info")
+        console.print(f"[dim]{current_version}[/dim] → [bold green]{new_version}[/bold green]")
+        console.print("\nRestart your terminal to use the new version.")
         console.print()
     except Exception:
         console.print("\n[green]✓ Update complete![/green]\n")
-        console.print("Run [cyan]mao version[/cyan] to verify the update")
+        console.print("Restart your terminal to use the new version.")
         console.print()
 
 
