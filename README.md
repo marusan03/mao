@@ -94,13 +94,27 @@ uv pip install -e .
 
 ## Quick Start
 
-### Setup API Key
+### Setup API Key (Optional for Dashboard Only)
 
-MAO uses Claude API to power its agents. Set your API key:
+MAO can run in two modes:
+
+**Dashboard Mode** (no API key required):
+- View project configuration
+- Monitor project structure
+- Access settings and configuration
+
+**Full Mode with Agents** (requires API key):
+- All dashboard features
+- AI agent execution
+- Automated development tasks
+
+To enable agent execution, set your API key:
 
 ```bash
 export ANTHROPIC_API_KEY=your-api-key-here
 ```
+
+Get your API key from: https://console.anthropic.com/
 
 ### Initialize Project
 

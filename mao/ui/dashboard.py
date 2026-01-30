@@ -182,11 +182,8 @@ class Dashboard(App):
         self.log_dir.mkdir(parents=True, exist_ok=True)
 
         # エージェント実行エンジン
-        try:
-            self.executor = AgentExecutor()
-        except ValueError:
-            self.executor = None
-            # API key がない場合はログに記録（起動後）
+        self.executor = AgentExecutor()
+        # API keyの有無は is_available() でチェック
 
         # メトリクス追跡
         self.total_tokens_used = 0
@@ -256,9 +253,15 @@ class Dashboard(App):
             if self.tmux_manager:
                 self.log_viewer_widget.add_log("tmux監視が有効です")
 
-            if not self.executor:
+            if not self.executor.is_available():
                 self.log_viewer_widget.add_log(
-                    "⚠ ANTHROPIC_API_KEY が設定されていません。エージェント実行は無効です"
+                    "⚠ ANTHROPIC_API_KEY が設定されていません"
+                )
+                self.log_viewer_widget.add_log(
+                    "  エージェント実行機能は利用できません"
+                )
+                self.log_viewer_widget.add_log(
+                    "  設定方法: export ANTHROPIC_API_KEY=your-api-key"
                 )
 
         # 活動ログ
@@ -287,10 +290,17 @@ class Dashboard(App):
         Returns:
             エージェントID（失敗時はNone）
         """
-        if not self.executor:
+        if not self.executor.is_available():
             if self.log_viewer_widget:
                 self.log_viewer_widget.add_log(
-                    "⚠ エージェント実行エンジンが利用できません（API key未設定）"
+                    "⚠ エージェント実行エンジンが利用できません"
+                )
+                self.log_viewer_widget.add_log(
+                    "  ANTHROPIC_API_KEY を設定してください"
+                )
+            if self.activity_widget:
+                self.activity_widget.add_activity(
+                    "system", "API key未設定のためエージェント起動失敗", "error"
                 )
             return None
 

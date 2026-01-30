@@ -18,16 +18,23 @@ class AgentExecutor:
     def __init__(self, api_key: Optional[str] = None):
         """
         Args:
-            api_key: Anthropic API key (環境変数 ANTHROPIC_API_KEY がなければ必須)
+            api_key: Anthropic API key (環境変数 ANTHROPIC_API_KEY または明示的に指定)
         """
         self.api_key = api_key or os.getenv("ANTHROPIC_API_KEY")
-        if not self.api_key:
-            raise ValueError(
-                "ANTHROPIC_API_KEY environment variable must be set or api_key must be provided"
-            )
 
-        # 非同期クライアント
-        self.client = AsyncAnthropic(api_key=self.api_key)
+        # API keyがある場合のみクライアントを作成
+        if self.api_key:
+            self.client = AsyncAnthropic(api_key=self.api_key)
+        else:
+            self.client = None
+
+    def is_available(self) -> bool:
+        """API keyが設定されているかチェック
+
+        Returns:
+            True if API key is available
+        """
+        return self.client is not None
 
     async def execute_agent(
         self,
@@ -52,6 +59,19 @@ class AgentExecutor:
         Returns:
             実行結果
         """
+        if not self.is_available():
+            error_msg = (
+                "ANTHROPIC_API_KEY is not set. "
+                "Please set the environment variable or provide an API key."
+            )
+            if logger:
+                logger.error(error_msg)
+            return {
+                "success": False,
+                "error": error_msg,
+                "model": model,
+            }
+
         if logger:
             logger.info("エージェント実行を開始")
             logger.api_request(model, max_tokens)
@@ -125,6 +145,16 @@ class AgentExecutor:
         Yields:
             ストリーミングイベント
         """
+        if not self.is_available():
+            error_msg = (
+                "ANTHROPIC_API_KEY is not set. "
+                "Please set the environment variable or provide an API key."
+            )
+            if logger:
+                logger.error(error_msg)
+            yield {"type": "error", "error": error_msg}
+            return
+
         if logger:
             logger.info("エージェント実行を開始（ストリーミング）")
             logger.api_request(model, max_tokens)
