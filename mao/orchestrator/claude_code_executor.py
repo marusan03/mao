@@ -53,7 +53,7 @@ class ClaudeCodeExecutor:
             logger: エージェント専用ロガー
             max_tokens: 最大トークン数（未使用、互換性のため）
             temperature: 温度パラメータ（未使用、互換性のため）
-            system: システムプロンプト（プロンプトに統合）
+            system: システムプロンプト（--append-system-promptで指定）
             work_dir: 作業ディレクトリ（Noneの場合は一時ディレクトリ）
 
         Returns:
@@ -74,37 +74,42 @@ class ClaudeCodeExecutor:
             cleanup_work_dir = False
 
         try:
-            # システムプロンプトとユーザープロンプトを統合
-            full_prompt = prompt
-            if system:
-                full_prompt = f"{system}\n\n{prompt}"
-
-            # プロンプトをファイルに保存
-            prompt_file = work_dir / "prompt.txt"
-            prompt_file.write_text(full_prompt)
-
-            # 出力ファイル
-            output_file = work_dir / "output.txt"
-            error_file = work_dir / "error.txt"
-
             if logger:
                 logger.info(f"作業ディレクトリ: {work_dir}")
                 logger.info(f"モデル: {model_short}")
 
-            # Claude Code CLIを実行
-            # --cwd で作業ディレクトリを指定
-            # プロンプトを標準入力から渡す
-            process = await asyncio.create_subprocess_exec(
+            # Claude CLIを実行
+            # --print: 非対話的出力
+            # --no-session-persistence: セッション保存を無効化
+            # --model: モデル指定
+            # --add-dir: 作業ディレクトリへのアクセスを許可
+            cmd = [
                 self.claude_code_path,
+                "--print",
+                "--no-session-persistence",
                 "--model", model_short,
-                "--cwd", str(work_dir),
-                stdin=asyncio.subprocess.PIPE,
+                "--add-dir", str(work_dir),
+            ]
+
+            # システムプロンプトがある場合
+            if system:
+                cmd.extend(["--append-system-prompt", system])
+
+            # プロンプトを引数として追加
+            cmd.append(prompt)
+
+            if logger:
+                logger.info(f"実行コマンド: {' '.join(cmd[:5])}... (省略)")
+
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                cwd=str(work_dir),
             )
 
-            # プロンプトを送信
-            stdout, stderr = await process.communicate(input=full_prompt.encode())
+            # 出力を待つ
+            stdout, stderr = await process.communicate()
 
             if process.returncode != 0:
                 error_msg = stderr.decode() if stderr else "Unknown error"
@@ -122,10 +127,10 @@ class ClaudeCodeExecutor:
 
             if logger:
                 logger.result(f"応答を受信（{len(response_text)}文字）")
-                logger.info(f"作業ディレクトリ: {work_dir}")
+                logger.info(f"作業ディレクトリは保持: {work_dir}")
 
             # 使用量は推定（Claude Code CLIからは取得できない）
-            estimated_input_tokens = len(full_prompt) // 4  # 概算
+            estimated_input_tokens = len(prompt) // 4  # 概算
             estimated_output_tokens = len(response_text) // 4  # 概算
 
             return {
@@ -150,7 +155,8 @@ class ClaudeCodeExecutor:
                 "model": model,
             }
         finally:
-            # 一時ディレクトリの場合はクリーンアップ
+            # 一時ディレクトリの場合のみクリーンアップ
+            # work_dirが指定されている場合は保持
             if cleanup_work_dir:
                 try:
                     shutil.rmtree(work_dir)
