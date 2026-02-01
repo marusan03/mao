@@ -48,6 +48,7 @@ class ManagerChatWidget(Static, can_focus=True):
         self.on_send_callback: Optional[Callable[[str], None]] = None
         self._streaming_message: Optional[ChatMessage] = None
         self._streaming_buffer: str = ""
+        self._thinking_text: str = ""  # 途中経過テキスト
 
     def add_user_message(self, message: str):
         """ユーザーメッセージを追加"""
@@ -94,6 +95,17 @@ class ManagerChatWidget(Static, can_focus=True):
         # ストリーミング状態を常にクリア
         self._streaming_message = None
         self._streaming_buffer = ""
+        self._thinking_text = ""
+
+    def set_thinking(self, text: str):
+        """途中経過（thinking）を設定"""
+        self._thinking_text = text
+        self.refresh_display()
+
+    def clear_thinking(self):
+        """途中経過をクリア"""
+        self._thinking_text = ""
+        self.refresh_display()
 
     def set_send_callback(self, callback: Callable[[str], None]):
         """メッセージ送信時のコールバックを設定"""
@@ -104,13 +116,19 @@ class ManagerChatWidget(Static, can_focus=True):
         content = Text()
         content.append("[Manager Chat]\n", style="bold cyan")
 
-        if not self.messages and not self._streaming_message:
+        if not self.messages and not self._streaming_message and not self._thinking_text:
             content.append("マネージャーと対話できます。下のフィールドに入力してください。\n", style="dim")
         else:
             # 通常のメッセージを表示
             for msg in self.messages:
                 content.append(msg.format())
                 content.append("\n")
+
+            # 途中経過（thinking）を表示
+            if self._thinking_text:
+                content.append("\n")
+                content.append("💭 考え中... ", style="bold yellow")
+                content.append(f"{self._thinking_text}\n", style="italic dim")
 
             # ストリーミング中のメッセージを表示
             if self._streaming_message:
