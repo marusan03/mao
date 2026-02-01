@@ -35,6 +35,7 @@ class AgentState:
     cost: float = 0.0
     last_updated: str = ""
     error_message: Optional[str] = None
+    worktree_path: str = ""
 
     def to_dict(self) -> Dict[str, Any]:
         """辞書に変換"""
@@ -47,6 +48,7 @@ class AgentState:
             "cost": self.cost,
             "last_updated": self.last_updated,
             "error_message": self.error_message,
+            "worktree_path": self.worktree_path,
         }
 
     @classmethod
@@ -109,10 +111,22 @@ class StateManager:
                 tokens_used INTEGER DEFAULT 0,
                 cost REAL DEFAULT 0.0,
                 last_updated TEXT,
-                error_message TEXT
+                error_message TEXT,
+                worktree_path TEXT
             )
             """
         )
+
+        # マイグレーション: worktree_path カラムを追加（存在しない場合）
+        try:
+            self.conn.execute(
+                "ALTER TABLE agent_states ADD COLUMN worktree_path TEXT"
+            )
+            self.conn.commit()
+        except sqlite3.OperationalError:
+            # カラムが既に存在する場合
+            pass
+
         self.conn.commit()
 
         # 既存データを読み込み
@@ -146,6 +160,7 @@ class StateManager:
         tokens_used: int = 0,
         cost: float = 0.0,
         error_message: Optional[str] = None,
+        worktree_path: str = "",
     ) -> None:
         """エージェント状態を更新
 
@@ -157,6 +172,7 @@ class StateManager:
             tokens_used: 使用トークン数
             cost: コスト
             error_message: エラーメッセージ
+            worktree_path: Git worktree パス
         """
         async with self._lock:
             state = AgentState(
@@ -168,6 +184,7 @@ class StateManager:
                 cost=cost,
                 last_updated=datetime.utcnow().isoformat(),
                 error_message=error_message,
+                worktree_path=worktree_path,
             )
 
             self._states[agent_id] = state
@@ -177,8 +194,8 @@ class StateManager:
                 self.conn.execute(
                     """
                     INSERT OR REPLACE INTO agent_states
-                    (agent_id, role, status, current_task, tokens_used, cost, last_updated, error_message)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    (agent_id, role, status, current_task, tokens_used, cost, last_updated, error_message, worktree_path)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         agent_id,
@@ -189,6 +206,7 @@ class StateManager:
                         cost,
                         state.last_updated,
                         error_message,
+                        worktree_path,
                     ),
                 )
                 self.conn.commit()

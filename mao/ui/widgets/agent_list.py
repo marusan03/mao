@@ -35,6 +35,7 @@ class AgentListWidget(Static, can_focus=True):
         task: str = "",
         tokens: int = 0,
         role: str = "",
+        worktree_path: str = "",
     ):
         """エージェント情報を更新"""
         self.agents[agent_id] = {
@@ -42,6 +43,7 @@ class AgentListWidget(Static, can_focus=True):
             "task": task,
             "tokens": tokens,
             "role": role or agent_id,
+            "worktree_path": worktree_path,
         }
         self.refresh_display()
 
@@ -95,7 +97,7 @@ class AgentListWidget(Static, can_focus=True):
                 # 選択中の表示
                 prefix = "❯ " if idx == self.selected_index else "  "
 
-                # エージェント名
+                # エージェント名とロール
                 role_name = info.get("role", agent_id)
                 content.append(f"{prefix}", style="cyan" if idx == self.selected_index else "dim")
                 content.append(f"{icon} ", style=color)
@@ -105,12 +107,21 @@ class AgentListWidget(Static, can_focus=True):
                 status_text = self._get_status_text(info["status"])
                 content.append(f" {status_text:<12}", style=color)
 
-                # トークン数
-                if info.get("tokens", 0) > 0:
-                    tokens_text = f"{info['tokens']:,}"
-                    content.append(f" Tokens: {tokens_text}", style="dim")
+                # Worktree 情報
+                worktree_path = info.get("worktree_path", "")
+                if worktree_path:
+                    content.append(" 🌳", style="green")
+                    # パスの最後の部分のみ表示
+                    worktree_name = worktree_path.split("/")[-1] if "/" in worktree_path else worktree_path
+                    content.append(f" {worktree_name[:20]}", style="dim")
 
                 content.append("\n")
+
+                # トークン数（2行目）
+                if info.get("tokens", 0) > 0:
+                    tokens_text = f"{info['tokens']:,}"
+                    content.append(f"  │ Tokens: {tokens_text}", style="dim")
+                    content.append("\n")
 
         self.update(content)
 
