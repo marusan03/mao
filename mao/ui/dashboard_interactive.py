@@ -366,6 +366,18 @@ class InteractiveDashboard(App):
         tasks = re.findall(task_pattern, text, re.DOTALL | re.MULTILINE)
 
         if not tasks:
+            # タスクが検出されなかった場合、警告を表示
+            if self.log_viewer_widget:
+                self.log_viewer_widget.add_log(
+                    "⚠️ CTOの応答からタスクが検出されませんでした",
+                    level="WARN",
+                    agent_id="manager",
+                )
+                self.log_viewer_widget.add_log(
+                    "ヒント: CTOが「Task 1: ...」形式でタスクを記述していない可能性があります",
+                    level="WARN",
+                    agent_id="manager",
+                )
             return
 
         # タスクサマリーを作成してTask Infoを更新
@@ -1121,18 +1133,38 @@ Branch: {worker_branch}
    - **sonnet**: 通常の実装タスク（推奨、バランス型）
    - **haiku**: シンプルなタスク、軽微な修正、調査タスク
 
-4. **Taskツールを使ってワーカーを起動**
-   各タスクに対して、**必ずTaskツールを使ってワーカーを起動してください。**
+4. **ワーカーを起動（重要！）**
+   ⚠️ **必ず以下のフォーマットでタスクを記述してください:**
 
-   例:
    ```
-   Task 1: 既存コードの調査
-   - Role: Explore
-   - Model: haiku
-   → Taskツールでワーカーを起動
+   Task 1: タスクの説明文
+   Role: general-purpose (または Explore, Bash, Plan)
+   Model: sonnet (または opus, haiku)
+
+   Task 2: 次のタスクの説明文
+   Role: Bash
+   Model: haiku
+   ```
+
+   **このフォーマットを使うと、自動的にワーカーが起動されます。**
+
+   ❌ 悪い例（ワーカーが起動されない）:
+   - "まず、既存コードを調査します"
+   - "1. コード調査 2. 実装 3. テスト"
+
+   ✅ 良い例（ワーカーが起動される）:
+   ```
+   Task 1: 既存の認証システムコードを調査
+   Role: Explore
+   Model: haiku
+
+   Task 2: 新しい認証機能を実装
+   Role: general-purpose
+   Model: sonnet
    ```
 
 回答は簡潔に、具体的に行ってください。
+**タスクを割り当てる場合は、必ず上記のフォーマットを使用してください。**
 
 ---
 **Feedback改善モード完了フロー:**
