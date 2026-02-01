@@ -232,6 +232,7 @@ class InteractiveDashboard(App):
         initial_model: str = "claude-sonnet-4-20250514",
         feedback_branch: Optional[str] = None,
         worktree_manager: Optional[Any] = None,
+        session_id: Optional[str] = None,
     ):
         super().__init__()
         self.project_path = project_path
@@ -244,6 +245,7 @@ class InteractiveDashboard(App):
         self.initial_model = initial_model
         self.feedback_branch = feedback_branch
         self.worktree_manager = worktree_manager
+        self._provided_session_id = session_id
 
         # ウィジェット参照
         self.header_widget: Optional[HeaderWidget] = None
@@ -268,14 +270,22 @@ class InteractiveDashboard(App):
         # メッセージキュー
         self.message_queue = MessageQueue(project_path=project_path)
 
-        # セッション管理（常に新しいセッションを作成）
-        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-        short_uuid = str(uuid.uuid4())[:8]
-        new_session_id = f"{timestamp}_{short_uuid}"
-        self.session_manager = SessionManager(
-            project_path=project_path,
-            session_id=new_session_id
-        )
+        # セッション管理（session_id が指定されている場合はそれを使用、なければ新規作成）
+        if self._provided_session_id:
+            # 既存セッションを継続
+            self.session_manager = SessionManager(
+                project_path=project_path,
+                session_id=self._provided_session_id
+            )
+        else:
+            # 新規セッションを作成
+            timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+            short_uuid = str(uuid.uuid4())[:8]
+            new_session_id = f"{timestamp}_{short_uuid}"
+            self.session_manager = SessionManager(
+                project_path=project_path,
+                session_id=new_session_id
+            )
 
         # フィードバック管理
         self.feedback_manager = FeedbackManager(project_path=project_path)
@@ -489,10 +499,35 @@ class InteractiveDashboard(App):
         if self.manager_chat_panel:
             self.manager_chat_panel.set_send_callback(self.on_manager_message_send)
 
-            # 初期メッセージを表示
-            self.manager_chat_panel.add_system_message(
-                "CTOに指示を送信できます。タスクの分解と実行を依頼してください。"
-            )
+            # セッション履歴を読み込んで表示
+            session_messages = self.session_manager.get_messages()
+            if session_messages:
+                # 既存セッションを継続している場合
+                self.manager_chat_panel.add_system_message(
+                    f"📚 セッション継続: {self.session_manager.session_id[-12:]} ({len(session_messages)} messages)"
+                )
+
+                # 履歴を復元（最新10件のみ表示）
+                recent_messages = session_messages[-10:] if len(session_messages) > 10 else session_messages
+                for msg in recent_messages:
+                    if msg.role == "user":
+                        self.manager_chat_panel.chat_widget.add_user_message(msg.content)
+                    elif msg.role == "manager":
+                        self.manager_chat_panel.chat_widget.add_manager_message(msg.content)
+                    # system メッセージはスキップ（ノイズになるため）
+
+                if len(session_messages) > 10:
+                    self.manager_chat_panel.add_system_message(
+                        f"💡 {len(session_messages) - 10}件の古いメッセージを省略しました"
+                    )
+            else:
+                # 新規セッション
+                self.manager_chat_panel.add_system_message(
+                    f"🆕 新規セッション: {self.session_manager.session_id[-12:]}"
+                )
+                self.manager_chat_panel.add_system_message(
+                    "CTOに指示を送信できます。タスクの分解と実行を依頼してください。"
+                )
 
         # 初期ログ
         if self.log_viewer_widget:

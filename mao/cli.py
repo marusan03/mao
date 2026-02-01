@@ -85,6 +85,100 @@ def main():
     pass
 
 
+def _select_session(project_path: Path) -> Optional[str]:
+    """セッション選択UI
+
+    Args:
+        project_path: プロジェクトパス
+
+    Returns:
+        選択されたセッションID（新規の場合はNone）
+    """
+    from rich.table import Table
+    from mao.orchestrator.session_manager import SessionManager
+    from datetime import datetime
+
+    # ダミーセッションマネージャーで全セッションを取得
+    temp_manager = SessionManager(project_path=project_path)
+    sessions = temp_manager.get_all_sessions()
+
+    if not sessions:
+        console.print("[yellow]📝 セッションが見つかりません。新規セッションを作成します。[/yellow]")
+        return None
+
+    console.print("\n[bold cyan]📚 利用可能なセッション:[/bold cyan]")
+
+    # セッションテーブルを作成
+    table = Table(show_header=True, header_style="bold magenta")
+    table.add_column("#", style="dim", width=4)
+    table.add_column("セッションID", width=20)
+    table.add_column("メッセージ数", justify="right", width=12)
+    table.add_column("最終更新", width=20)
+    table.add_column("作成日時", width=20)
+
+    for idx, session_meta in enumerate(sessions[:10], 1):  # 最新10件のみ表示
+        session_id = session_meta.get("session_id", "N/A")
+        message_count = session_meta.get("message_count", 0)
+        updated_at = session_meta.get("updated_at", "N/A")
+        created_at = session_meta.get("created_at", "N/A")
+
+        # 日時をフォーマット
+        try:
+            updated_dt = datetime.fromisoformat(updated_at)
+            updated_str = updated_dt.strftime("%Y-%m-%d %H:%M")
+        except:
+            updated_str = updated_at[:16] if len(updated_at) > 16 else updated_at
+
+        try:
+            created_dt = datetime.fromisoformat(created_at)
+            created_str = created_dt.strftime("%Y-%m-%d %H:%M")
+        except:
+            created_str = created_at[:16] if len(created_at) > 16 else created_at
+
+        # セッションIDを短縮表示
+        short_id = session_id[-12:] if len(session_id) > 12 else session_id
+
+        table.add_row(
+            str(idx),
+            short_id,
+            str(message_count),
+            updated_str,
+            created_str,
+        )
+
+    console.print(table)
+
+    # ユーザーに選択を促す
+    console.print("\n[yellow]オプション:[/yellow]")
+    console.print("  [cyan]1-10[/cyan]: 既存のセッションを継続")
+    console.print("  [cyan]n[/cyan]:   新規セッションを作成")
+    console.print("  [cyan]Enter[/cyan]: 最新セッションを継続")
+
+    choice = console.input("\n[bold]選択してください:[/bold] ").strip().lower()
+
+    if choice == "" or choice == "1":
+        # デフォルト: 最新セッション
+        selected = sessions[0]
+        console.print(f"[green]✓ 最新セッションを継続: {selected['session_id'][-12:]}[/green]")
+        return selected["session_id"]
+    elif choice == "n":
+        # 新規セッション
+        console.print("[green]✓ 新規セッションを作成します[/green]")
+        return None
+    elif choice.isdigit():
+        idx = int(choice)
+        if 1 <= idx <= len(sessions):
+            selected = sessions[idx - 1]
+            console.print(f"[green]✓ セッションを継続: {selected['session_id'][-12:]}[/green]")
+            return selected["session_id"]
+        else:
+            console.print("[red]✗ 無効な選択です。新規セッションを作成します。[/red]")
+            return None
+    else:
+        console.print("[red]✗ 無効な選択です。新規セッションを作成します。[/red]")
+        return None
+
+
 @main.command()
 @click.argument("prompt", required=False)
 @click.option(
@@ -128,6 +222,16 @@ def main():
     help="Model to use for the initial task (default: sonnet)",
     shell_complete=cli_completion.complete_models,
 )
+@click.option(
+    "--session",
+    "-s",
+    help="Session ID to continue from (default: interactive selection)",
+)
+@click.option(
+    "--new-session",
+    is_flag=True,
+    help="Always create a new session (skip selection)",
+)
 def start(
     prompt: Optional[str],
     project_dir: str,
@@ -137,12 +241,32 @@ def start(
     task: Optional[str],
     role: str,
     model: str,
+    session: Optional[str],
+    new_session: bool,
 ):
     """Start the Multi-Agent Orchestrator in interactive mode"""
     project_path = Path(project_dir).resolve()
 
     console.print(f"\n[bold green]🚀 Multi-Agent Orchestrator[/bold green]")
     console.print(f"[dim]Project: {project_path}[/dim]")
+
+    # セッション選択
+    from mao.orchestrator.session_manager import SessionManager
+    selected_session_id = None
+
+    if new_session:
+        # 新規セッション強制
+        console.print("[green]✓ 新規セッションを作成します[/green]")
+    elif session:
+        # セッションIDが指定されている
+        selected_session_id = session
+        console.print(f"[green]✓ セッションを継続: {selected_session_id}[/green]")
+    else:
+        # インタラクティブにセッション選択
+        selected_session_id = _select_session(project_path)
+
+    # セッションIDをダッシュボードに渡す（後で使用）
+    session_id_to_use = selected_session_id
 
     # 初期プロンプトの処理
     initial_prompt = prompt or task
@@ -224,6 +348,7 @@ def start(
         initial_prompt=initial_prompt,
         initial_role=role,
         initial_model=model_id,
+        session_id=session_id_to_use,
     )
 
     console.print("\n[bold]ダッシュボード起動中...[/bold]")
