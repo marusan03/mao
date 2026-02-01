@@ -974,12 +974,12 @@ def _is_mao_project(project_path: Path) -> bool:
 
 
 @main.group()
-def improve():
-    """Manage project improvements"""
+def project():
+    """Manage project improvements (for any project)"""
     pass
 
 
-@improve.command("create")
+@project.command("create")
 @click.option("--project-dir", default=".", help="Project directory")
 @click.option("--title", "-t", required=True, help="Improvement title")
 @click.option("--description", "-d", required=True, help="Improvement description")
@@ -1018,10 +1018,10 @@ def create_improvement(
     console.print(f"[cyan]Title:[/cyan] {improvement.title}")
     console.print(f"[cyan]Category:[/cyan] {improvement.category}")
     console.print(f"[cyan]Priority:[/cyan] {improvement.priority}")
-    console.print(f"\n[dim]Use 'mao improve start {improvement.id[:8]}' to work on it[/dim]")
+    console.print(f"\n[dim]Use 'mao project improve {improvement.id[:8]}' to work on it[/dim]")
 
 
-@improve.command("list")
+@project.command("list")
 @click.option("--project-dir", default=".", help="Project directory")
 @click.option("--status", type=click.Choice(["pending", "in_progress", "completed", "cancelled"]), help="Filter by status")
 @click.option("--category", type=click.Choice(["feature", "bug", "refactor", "performance", "documentation"]), help="Filter by category")
@@ -1075,7 +1075,7 @@ def list_improvements(project_dir: str, status: Optional[str], category: Optiona
     console.print(table)
 
 
-@improve.command("show")
+@project.command("show")
 @click.argument("improvement_id")
 @click.option("--project-dir", default=".", help="Project directory")
 def show_improvement(improvement_id: str, project_dir: str):
@@ -1091,6 +1091,7 @@ def show_improvement(improvement_id: str, project_dir: str):
 
     if not improvement:
         console.print(f"[bold red]✗ Improvement not found: {improvement_id}[/bold red]")
+        console.print("[dim]Use [cyan]mao project list[/cyan] to see available improvements[/dim]")
         return
 
     # 詳細を表示
@@ -1115,20 +1116,55 @@ def show_improvement(improvement_id: str, project_dir: str):
     console.print(Panel(Markdown(improvement.description), border_style="cyan"))
 
 
-@improve.command("start")
+@project.command("delete")
+@click.argument("improvement_id")
+@click.option("--project-dir", default=".", help="Project directory")
+@click.option("--yes", "-y", is_flag=True, help="Skip confirmation")
+def delete_improvement(improvement_id: str, project_dir: str, yes: bool):
+    """Delete a project improvement"""
+    from mao.orchestrator.improvement_manager import ImprovementManager
+
+    project_path = Path(project_dir).resolve()
+    manager = ImprovementManager(project_path=project_path)
+
+    improvement = manager.get_improvement(improvement_id)
+
+    if not improvement:
+        console.print(f"[bold red]✗ Improvement not found: {improvement_id}[/bold red]")
+        return
+
+    # 確認
+    if not yes:
+        console.print(f"\n[yellow]Delete improvement?[/yellow]")
+        console.print(f"  ID: {improvement.id[:12]}")
+        console.print(f"  Title: {improvement.title}")
+        console.print(f"  Status: {improvement.status}")
+
+        if not click.confirm("Are you sure?"):
+            console.print("[dim]Cancelled[/dim]")
+            return
+
+    # 削除
+    if manager.delete_improvement(improvement.id):
+        console.print(f"[bold green]✓ Improvement deleted: {improvement.id[:12]}[/bold green]")
+    else:
+        console.print(f"[bold red]✗ Failed to delete improvement[/bold red]")
+
+
+@project.command("improve")
 @click.argument("improvement_id")
 @click.option("--project-dir", default=".", help="Project directory")
 @click.option("--model", default="sonnet", type=click.Choice(["sonnet", "opus", "haiku"]), help="Model to use")
 @click.option("--no-issue", is_flag=True, help="Don't create GitHub issue")
-def start_improvement(
+def improve_project(
     improvement_id: str,
     project_dir: str,
     model: str,
     no_issue: bool,
 ):
-    """Start working on a project improvement"""
+    """Work on a project improvement with CTO and workers (any project)"""
     # Implementation similar to feedback improve but for any project
-    console.print("[yellow]improve start コマンドは実装中です[/yellow]")
+    console.print("[yellow]project improve コマンドは実装中です[/yellow]")
     console.print("[dim]詳細は次のコミットで追加されます[/dim]")
 
 
@@ -1275,7 +1311,7 @@ def improve_feedback(feedback_id: str, project_dir: str, model: str, no_issue: b
     if not _is_mao_project(project_path):
         console.print("[bold red]✗ Feedback improve can only be run on MAO project[/bold red]")
         console.print("[dim]Feedback can be created from any project, but improved only on MAO[/dim]")
-        console.print("[dim]For other projects, use 'mao improve' commands instead[/dim]")
+        console.print("[dim]For other projects, use 'mao project' commands instead[/dim]")
         return
 
     manager = FeedbackManager(project_path=project_path)
