@@ -1,0 +1,231 @@
+name: tui-debug
+display_name: "🐛 TUI Debug & Test"
+description: |
+  Debug and test Textual TUI applications interactively.
+
+  This skill helps debug TUI applications by:
+  1. Running the TUI with dev tools enabled
+  2. Capturing screenshots and layout information
+  3. Testing keyboard/mouse interactions
+  4. Validating widget rendering
+  5. Checking for CSS and layout issues
+
+  Usage:
+    mao skills show tui-debug     # Show this help
+
+  Then manually run:
+    textual run --dev mao/ui/dashboard_interactive.py  # Run with dev console
+    textual console                                     # Open debug console
+
+  Or use the debug wrapper:
+    python -m textual run --dev mao.ui.dashboard_interactive:InteractiveDashboard
+
+version: "1.0.0"
+
+parameters:
+  - name: app
+    short: a
+    description: "TUI application module path (e.g., mao.ui.dashboard_interactive:InteractiveDashboard)"
+    type: string
+    required: false
+    default: "mao.ui.dashboard_interactive:InteractiveDashboard"
+
+  - name: screenshot
+    short: s
+    description: "Capture screenshot to file"
+    type: string
+    required: false
+
+  - name: test-keys
+    description: "Test key sequence (e.g., 'ctrl+q,enter,tab')"
+    type: string
+    required: false
+
+  - name: check-widgets
+    description: "Validate all widgets are rendering"
+    type: boolean
+    default: false
+
+  - name: dev-mode
+    description: "Run with Textual dev tools"
+    type: boolean
+    default: true
+
+examples:
+  - command: "textual run --dev mao.ui.dashboard_interactive:InteractiveDashboard"
+    description: "Run interactive dashboard with dev console"
+
+  - command: "textual console"
+    description: "Open Textual debug console in separate terminal"
+
+  - command: "python -c 'from mao.ui.dashboard_interactive import InteractiveDashboard; InteractiveDashboard().run()'"
+    description: "Run dashboard directly"
+
+debugging_checklist: |
+  ## TUI デバッグチェックリスト
+
+  ### 1. 起動確認
+  - [ ] アプリケーションが起動する
+  - [ ] クラッシュやエラーメッセージがない
+  - [ ] 初期画面が表示される
+
+  ### 2. レイアウト確認
+  - [ ] すべてのウィジェットが表示される
+  - [ ] スクロールバーが正しく動作する
+  - [ ] ボーダーとパディングが正しい
+  - [ ] レスポンシブデザインが機能する
+
+  ### 3. キーボード操作
+  - [ ] Tab/Shift+Tabでフォーカス移動
+  - [ ] Ctrl+Qで終了
+  - [ ] 各ウィジェット固有のキーバインド
+  - [ ] ショートカットキー（Ctrl+1, Ctrl+2, etc.）
+
+  ### 4. スクロール
+  - [ ] 各ウィジェットが個別にスクロールする
+  - [ ] スクロールバーが表示される
+  - [ ] マウスホイールが機能する
+  - [ ] キーボード（↑↓）でスクロール
+
+  ### 5. インタラクティブ要素
+  - [ ] ボタンがクリックできる
+  - [ ] 入力フィールドに入力できる
+  - [ ] リスト選択が機能する
+  - [ ] フォーカス時のハイライト
+
+  ### 6. 更新とリアルタイム表示
+  - [ ] データが定期的に更新される
+  - [ ] ストリーミングメッセージが表示される
+  - [ ] ログが追加される
+  - [ ] メトリクスが更新される
+
+  ### 7. エラーハンドリング
+  - [ ] エラーメッセージが適切に表示される
+  - [ ] エラー時にクラッシュしない
+  - [ ] ユーザーに分かりやすいメッセージ
+
+  ### 8. パフォーマンス
+  - [ ] 起動が速い（< 2秒）
+  - [ ] 操作が滑らか（レスポンス < 100ms）
+  - [ ] メモリリークがない
+  - [ ] CPU使用率が適切
+
+common_issues: |
+  ## よくある問題と解決方法
+
+  ### 問題: ウィジェットが表示されない
+  解決:
+  - CSSの高さ設定を確認（height: auto vs 1fr）
+  - VerticalScrollコンテナを確認
+  - compose()メソッドでyieldしているか確認
+
+  ### 問題: スクロールできない
+  解決:
+  - VerticalScrollコンテナで囲む
+  - CSS: scrollbar-gutter: stable
+  - 子要素のheight: autoを確認
+
+  ### 問題: キーが反応しない
+  解決:
+  - BINDINGSに定義されているか確認
+  - action_*メソッドが存在するか確認
+  - フォーカス状態を確認
+
+  ### 問題: 更新が反映されない
+  解決:
+  - refresh()またはrefresh_display()を呼ぶ
+  - reactive変数を使用する
+  - call_from_thread()でスレッド安全に更新
+
+  ### 問題: レイアウトが崩れる
+  解決:
+  - CSSのlayout: horizontal/vertical確認
+  - widthとheightの設定確認
+  - frとautoの使い分け確認
+
+textual_commands: |
+  ## Textual 開発ツール
+
+  ### Dev Console
+  ```bash
+  # アプリを開発モードで起動
+  textual run --dev mao.ui.dashboard_interactive:InteractiveDashboard
+
+  # 別ターミナルでコンソールを開く
+  textual console
+  ```
+
+  ### Textual Devtools
+  - ライブレイアウトビュー
+  - CSSインスペクター
+  - ログビューア
+  - パフォーマンスプロファイラ
+
+  ### Screenshot
+  ```bash
+  # アプリケーション内で'S'キーを押すとスクリーンショット
+  # または
+  textual run --screenshot=5 app.py  # 5秒後に撮影
+  ```
+
+  ### ログ出力
+  ```python
+  # アプリケーション内で
+  self.log("Debug message")
+  self.log.info("Info message")
+  self.log.error("Error message")
+  ```
+
+test_scenarios: |
+  ## テストシナリオ
+
+  ### シナリオ1: 起動と終了
+  1. `mao start --interactive "test task"`
+  2. ダッシュボードが表示されることを確認
+  3. Ctrl+Qで終了
+  4. クリーンに終了することを確認
+
+  ### シナリオ2: CTOとの対話
+  1. インタラクティブモードで起動
+  2. メッセージ入力欄にフォーカス
+  3. "Hello"と入力してEnter
+  4. CTOからの応答が表示されることを確認
+  5. ストリーミング表示が動作することを確認
+
+  ### シナリオ3: スクロール
+  1. ダッシュボード起動
+  2. 各ウィジェットに順番にフォーカス（Tab）
+  3. 上下キーでスクロール
+  4. マウスホイールでスクロール
+  5. すべてのウィジェットがスクロール可能か確認
+
+  ### シナリオ4: エージェント表示
+  1. タスク実行
+  2. エージェント一覧に表示されることを確認
+  3. ステータスが更新されることを確認
+  4. ログが表示されることを確認
+
+  ### シナリオ5: 長時間実行
+  1. 複数のタスクを実行
+  2. 30分以上実行
+  3. メモリリークがないか確認
+  4. 応答性が維持されているか確認
+
+security:
+  risk_level: low
+  requires_approval: false
+  dangerous_operations: []
+  rationale: |
+    This skill only runs debug/test commands for TUI applications.
+    It's read-only and doesn't modify code or data.
+
+metadata:
+  category: development
+  tags:
+    - tui
+    - textual
+    - debug
+    - test
+    - ui
+  author: "Claude Opus 4.5"
+  created_at: "2026-02-02"
