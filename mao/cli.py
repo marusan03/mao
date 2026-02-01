@@ -770,66 +770,6 @@ def skills_show(skill_name: str):
         console.print()
 
 
-@skills.command("run")
-@click.argument("skill_name")
-@click.argument("args", nargs=-1)
-@click.option("--dry-run", is_flag=True, help="Show commands without executing")
-def skills_run(skill_name: str, args: tuple, dry_run: bool):
-    """Run a skill"""
-    from mao.orchestrator.skill_manager import SkillManager
-    from mao.orchestrator.skill_executor import SkillExecutor
-
-    project_path = Path.cwd()
-    manager = SkillManager(project_path)
-    executor = SkillExecutor(project_path)
-
-    skill = manager.get_skill(skill_name)
-
-    if not skill:
-        console.print(f"[red]Skill not found: {skill_name}[/red]")
-        sys.exit(1)
-
-    # パラメータ解析 (--key=value 形式)
-    parameters = {}
-    for arg in args:
-        if "=" in arg:
-            key, value = arg.split("=", 1)
-            key = key.lstrip("-")
-            # boolean変換
-            if value.lower() in ("true", "yes", "1"):
-                value = True
-            elif value.lower() in ("false", "no", "0"):
-                value = False
-            parameters[key] = value
-
-    console.print(f"[bold]Running skill:[/bold] {skill.display_name}")
-
-    if dry_run:
-        console.print("\n[yellow]Dry run mode - commands that would be executed:[/yellow]\n")
-        commands = executor.dry_run(skill, parameters)
-        for cmd in commands:
-            console.print(f"  $ {cmd}")
-        return
-
-    # 実行
-    console.print()
-    result = executor.execute_skill(skill, parameters)
-
-    if result.success:
-        console.print(f"\n[green]✓ Skill executed successfully[/green]")
-        console.print(f"Duration: {result.duration:.2f}s")
-        if result.output:
-            console.print("\n[bold]Output:[/bold]")
-            console.print(result.output)
-    else:
-        console.print(f"\n[red]✗ Skill execution failed[/red]")
-        console.print(f"Exit code: {result.exit_code}")
-        if result.error:
-            console.print("\n[bold]Error:[/bold]")
-            console.print(result.error)
-        sys.exit(1)
-
-
 @skills.command("delete")
 @click.argument("skill_name")
 @click.option("--yes", "-y", is_flag=True, help="Skip confirmation")
@@ -857,37 +797,6 @@ def skills_delete(skill_name: str, yes: bool):
     else:
         console.print(f"[red]Failed to delete skill: {skill_name}[/red]")
         sys.exit(1)
-
-
-@skills.command("proposals")
-def skills_proposals():
-    """List pending skill proposals"""
-    from mao.orchestrator.skill_manager import SkillManager
-
-    project_path = Path.cwd()
-    manager = SkillManager(project_path)
-
-    proposals = manager.list_proposals()
-
-    if not proposals:
-        console.print("[yellow]No pending proposals.[/yellow]")
-        return
-
-    console.print(f"[bold]Pending Skill Proposals ({len(proposals)}):[/bold]\n")
-
-    for proposal in proposals:
-        risk_color = {
-            "SAFE": "green",
-            "WARNING": "yellow",
-            "CRITICAL": "red",
-        }.get(proposal.review.risk_level, "white")
-
-        console.print(f"[cyan]• {proposal.skill.display_name}[/cyan]")
-        console.print(f"  Status: {proposal.review.status}")
-        console.print(f"  Quality: {proposal.review.quality_score}/10")
-        console.print(f"  Security: [{risk_color}]{proposal.review.risk_level}[/{risk_color}]")
-        console.print(f"  Proposed: {proposal.proposed_at}")
-        console.print()
 
 
 @main.group()
