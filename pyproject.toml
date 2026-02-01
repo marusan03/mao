@@ -96,11 +96,18 @@ select = [
     "TCH",    # flake8-type-checking
     "PTH",    # flake8-use-pathlib
     "ERA",    # eradicate (commented-out code)
+    "PYI",    # flake8-pyi (type stub checks)
+    "RET",    # flake8-return
+    "ARG",    # flake8-unused-arguments
 ]
 ignore = [
     "E501",   # line too long (handled by formatter)
     "SIM105", # use contextlib.suppress (sometimes explicit is better)
 ]
+
+# Enforce stricter type checking
+[tool.ruff.lint.flake8-type-checking]
+strict = true
 
 [tool.ruff.format]
 quote-style = "double"

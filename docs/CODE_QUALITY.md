@@ -2,6 +2,11 @@
 
 MAO プロジェクトのコード品質管理ガイド
 
+> **重要**: コーディング規約については [CODING_STANDARDS.md](./CODING_STANDARDS.md) を参照してください。
+> - Pydantic と Enum の使用
+> - dict の禁止
+> - ミュータブルなデフォルト引数の完全禁止
+
 ## 🛠️ 使用ツール
 
 ### Ruff（Linter & Formatter）

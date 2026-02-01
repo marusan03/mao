@@ -13,9 +13,17 @@ repos:
       # Run the formatter
       - id: ruff-format
 
-  # Type checking with pyright
+  # Custom checks
   - repo: local
     hooks:
+      # Check for mutable default patterns (including None pattern)
+      - id: check-mutable-defaults
+        name: check-mutable-defaults
+        entry: python scripts/check_mutable_defaults.py
+        language: system
+        types: [python]
+
+      # Type checking with pyright
       - id: pyright
         name: pyright
         entry: pyright

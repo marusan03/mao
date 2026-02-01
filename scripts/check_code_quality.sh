@@ -62,4 +62,14 @@ if [ "$PYRIGHT_AVAILABLE" = true ]; then
     echo -e "${GREEN}✅ Pyright type checker${NC}\n"
 fi
 
+# Run custom mutable defaults checker
+echo -e "${YELLOW}🔒 Checking for mutable default patterns...${NC}"
+if python3 scripts/check_mutable_defaults.py mao/**/*.py; then
+    echo -e "${GREEN}✅ No mutable default patterns${NC}\n"
+else
+    echo -e "${RED}❌ Mutable default patterns found${NC}"
+    echo -e "${YELLOW}See docs/CODING_STANDARDS.md for correct patterns${NC}\n"
+    exit 1
+fi
+
 echo -e "${GREEN}🎉 All checks passed!${NC}"
