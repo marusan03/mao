@@ -24,7 +24,27 @@ Microsoft 製の高速型チェッカー。以下をチェック：
 
 ## 🚀 使い方
 
-### 方法1: Makefile（推奨）
+### 推奨: mise（最も簡単）
+
+```bash
+# 初回セットアップ
+./scripts/setup_dev.sh
+
+# 以降は mise タスクで実行
+mise run quality          # すべてのチェック
+mise run quality-fix      # 自動修正付き
+mise run lint            # lint のみ
+mise run format          # フォーマットのみ
+mise run typecheck       # 型チェックのみ
+mise run test            # テスト実行
+
+# 利用可能なタスク一覧
+mise tasks
+```
+
+詳細: [DEVELOPMENT.md](../DEVELOPMENT.md)
+
+### 方法1: Makefile
 
 ```bash
 # すべてのチェックを実行

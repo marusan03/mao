@@ -1,0 +1,59 @@
+# Mise configuration for MAO project
+# Install mise: https://mise.jdx.dev/getting-started.html
+# Usage: mise install
+
+[tools]
+python = "3.11"
+# node = "20"  # Uncomment if needed for future tools
+
+[env]
+# Project-specific environment variables
+_.python.venv = { path = ".venv", create = true }
+
+# Activate virtualenv automatically when entering the project directory
+[hooks]
+enter = """
+echo "🚀 MAO development environment"
+echo "Python: $(python --version)"
+echo "Virtual env: .venv"
+"""
+
+# Ensure dependencies are installed
+[tasks.install]
+description = "Install Python dependencies"
+run = """
+pip install -e ".[dev]"
+"""
+
+[tasks.quality]
+description = "Run code quality checks"
+run = "make quality"
+
+[tasks.quality-fix]
+description = "Run code quality checks with auto-fix"
+run = "make quality-fix"
+
+[tasks.test]
+description = "Run all tests"
+run = "make test"
+
+[tasks.lint]
+description = "Run ruff linter"
+run = "make lint"
+
+[tasks.format]
+description = "Check code formatting"
+run = "make format"
+
+[tasks.typecheck]
+description = "Run type checker"
+run = "make typecheck"
+
+[tasks.pre-commit-install]
+description = "Install pre-commit hooks"
+run = "make pre-commit-install"
+
+[tasks.setup]
+description = "Complete development setup"
+run = "make setup"
+depends = ["install", "pre-commit-install"]

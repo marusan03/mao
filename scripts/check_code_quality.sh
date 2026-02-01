@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
 # Code quality checker - runs ruff and pyright
 # Usage: ./scripts/check_code_quality.sh [--fix]
+# Note: Use mise for automatic tool version management
 
 set -e
+
+# Change to project root
+cd "$(dirname "$0")/.."
 
 # Colors for output
 RED='\033[0;31m'
