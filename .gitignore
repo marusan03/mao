@@ -63,6 +63,9 @@ dmypy.json
 .mao/*.log
 .mao/logs/
 .mao/skill_proposals/
+.mao/sessions/
+.mao/worktrees/
+.mao/feedback/
 *.db
 *.sqlite
 *.log

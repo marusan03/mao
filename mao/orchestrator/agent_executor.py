@@ -5,11 +5,63 @@ import asyncio
 from pathlib import Path
 from typing import Optional, Dict, Any, AsyncIterator
 import os
+import subprocess
 
 from anthropic import Anthropic, AsyncAnthropic
 from anthropic.types import Message, MessageStreamEvent
 
 from mao.orchestrator.agent_logger import AgentLogger
+from mao.orchestrator.utils.model_utils import calculate_cost
+
+
+def escape_applescript(text: str) -> str:
+    """
+    AppleScript用に文字列をエスケープ
+
+    Args:
+        text: エスケープする文字列
+
+    Returns:
+        エスケープされた文字列
+    """
+    # バックスラッシュを最初にエスケープ（二重エスケープを防ぐ）
+    text = text.replace('\\', '\\\\')
+    # ダブルクォートをエスケープ
+    text = text.replace('"', '\\"')
+    return text
+
+
+def send_mac_notification(title: str, message: str, sound: bool = True):
+    """
+    macOS通知を送信（一時的なデバッグ用）
+
+    Args:
+        title: 通知タイトル
+        message: 通知メッセージ
+        sound: サウンドを鳴らすか
+    """
+    try:
+        # AppleScriptインジェクション対策
+        safe_title = escape_applescript(title)
+        safe_message = escape_applescript(message)
+
+        sound_option = 'sound name "Basso"' if sound else ""
+        script = f'display notification "{safe_message}" with title "{safe_title}" {sound_option}'
+        subprocess.run(
+            ["osascript", "-e", script],
+            capture_output=True,
+            timeout=5,
+            check=False,  # エラーを無視
+        )
+    except subprocess.TimeoutExpired:
+        # タイムアウトは無視（通知は重要な処理ではない）
+        pass
+    except FileNotFoundError:
+        # osascriptがない環境（非macOS）では無視
+        pass
+    except Exception:
+        # その他のエラーも無視（通知は重要な処理ではない）
+        pass
 
 
 class AgentExecutor:
@@ -96,7 +148,7 @@ class AgentExecutor:
             if logger:
                 logger.api_response(
                     tokens=message.usage.output_tokens,
-                    cost=self._calculate_cost(model, message.usage),
+                    cost=calculate_cost(model, message.usage),
                 )
                 logger.result(f"応答を受信しました（{message.usage.output_tokens} tokens）")
 
@@ -112,13 +164,53 @@ class AgentExecutor:
                 "stop_reason": message.stop_reason,
             }
 
-        except Exception as e:
+        except ValueError as e:
+            # バリデーションエラー（不正なパラメータなど）
+            error_msg = f"Invalid parameter: {str(e)}"
             if logger:
-                logger.error(f"エージェント実行エラー: {str(e)}")
+                logger.error(error_msg)
 
             return {
                 "success": False,
-                "error": str(e),
+                "error": error_msg,
+                "error_type": "validation",
+                "response": None,
+            }
+        except ConnectionError as e:
+            # ネットワーク接続エラー
+            error_msg = f"Connection error: {str(e)}"
+            if logger:
+                logger.error(error_msg)
+
+            return {
+                "success": False,
+                "error": error_msg,
+                "error_type": "connection",
+                "response": None,
+            }
+        except TimeoutError as e:
+            # タイムアウト
+            error_msg = f"Request timeout: {str(e)}"
+            if logger:
+                logger.error(error_msg)
+
+            return {
+                "success": False,
+                "error": error_msg,
+                "error_type": "timeout",
+                "response": None,
+            }
+        except Exception as e:
+            # その他のエラー（API エラーなど）
+            error_msg = f"Agent execution error: {str(e)}"
+            if logger:
+                logger.error(f"{error_msg} (type: {type(e).__name__})")
+
+            return {
+                "success": False,
+                "error": error_msg,
+                "error_type": "api_error",
+                "exception_class": type(e).__name__,
                 "response": None,
             }
 
@@ -200,7 +292,7 @@ class AgentExecutor:
                 if logger:
                     logger.api_response(
                         tokens=message.usage.output_tokens,
-                        cost=self._calculate_cost(model, message.usage),
+                        cost=calculate_cost(model, message.usage),
                     )
                     logger.result(f"応答完了（{message.usage.output_tokens} tokens）")
 
@@ -215,42 +307,48 @@ class AgentExecutor:
                     "stop_reason": message.stop_reason,
                 }
 
-        except Exception as e:
+        except ValueError as e:
+            error_msg = f"Invalid parameter: {str(e)}"
             if logger:
-                logger.error(f"ストリーミング実行エラー: {str(e)}")
+                logger.error(error_msg)
 
             yield {
                 "type": "error",
-                "error": str(e),
+                "error": error_msg,
+                "error_type": "validation",
+            }
+        except ConnectionError as e:
+            error_msg = f"Connection error: {str(e)}"
+            if logger:
+                logger.error(error_msg)
+
+            yield {
+                "type": "error",
+                "error": error_msg,
+                "error_type": "connection",
+            }
+        except TimeoutError as e:
+            error_msg = f"Request timeout: {str(e)}"
+            if logger:
+                logger.error(error_msg)
+
+            yield {
+                "type": "error",
+                "error": error_msg,
+                "error_type": "timeout",
+            }
+        except Exception as e:
+            error_msg = f"Streaming execution error: {str(e)}"
+            if logger:
+                logger.error(f"{error_msg} (type: {type(e).__name__})")
+
+            yield {
+                "type": "error",
+                "error": error_msg,
+                "error_type": "api_error",
+                "exception_class": type(e).__name__,
             }
 
-    def _calculate_cost(self, model: str, usage: Any) -> float:
-        """
-        概算コストを計算（2026年1月時点の価格）
-
-        Args:
-            model: モデル名
-            usage: Usage オブジェクト
-
-        Returns:
-            概算コスト（USD）
-        """
-        # モデルごとの価格（per million tokens）
-        pricing = {
-            "claude-opus-4-20250514": {"input": 15.0, "output": 75.0},
-            "claude-sonnet-4-20250514": {"input": 3.0, "output": 15.0},
-            "claude-haiku-4-20250514": {"input": 0.25, "output": 1.25},
-        }
-
-        # デフォルト価格（Sonnet）
-        price = pricing.get(
-            model, {"input": 3.0, "output": 15.0}
-        )
-
-        input_cost = (usage.input_tokens / 1_000_000) * price["input"]
-        output_cost = (usage.output_tokens / 1_000_000) * price["output"]
-
-        return input_cost + output_cost
 
     async def execute_with_tools(
         self,
@@ -347,13 +445,36 @@ class AgentExecutor:
                 "turns": 10,
             }
 
-        except Exception as e:
+        except ValueError as e:
+            error_msg = f"Invalid tool parameter: {str(e)}"
             if logger:
-                logger.error(f"ツール使用エラー: {str(e)}")
+                logger.error(error_msg)
 
             return {
                 "success": False,
-                "error": str(e),
+                "error": error_msg,
+                "error_type": "validation",
+            }
+        except ConnectionError as e:
+            error_msg = f"Connection error during tool use: {str(e)}"
+            if logger:
+                logger.error(error_msg)
+
+            return {
+                "success": False,
+                "error": error_msg,
+                "error_type": "connection",
+            }
+        except Exception as e:
+            error_msg = f"Tool execution error: {str(e)}"
+            if logger:
+                logger.error(f"{error_msg} (type: {type(e).__name__})")
+
+            return {
+                "success": False,
+                "error": error_msg,
+                "error_type": "tool_error",
+                "exception_class": type(e).__name__,
             }
 
 
@@ -400,8 +521,14 @@ class AgentProcess:
 
         except Exception as e:
             self.status = "failed"
-            self.logger.error(f"予期しないエラー: {str(e)}")
-            self.result = {"success": False, "error": str(e)}
+            error_msg = f"Unexpected error in agent process: {str(e)}"
+            self.logger.error(f"{error_msg} (type: {type(e).__name__})")
+            self.result = {
+                "success": False,
+                "error": error_msg,
+                "error_type": "process_error",
+                "exception_class": type(e).__name__,
+            }
 
         return self.result
 

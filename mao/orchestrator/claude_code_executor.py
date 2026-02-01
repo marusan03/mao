@@ -4,21 +4,29 @@ Agent execution engine using multiple Claude Code instances
 import asyncio
 import tempfile
 import shutil
+import subprocess
 from pathlib import Path
 from typing import Optional, Dict, Any
 import json
 import time
 
 from mao.orchestrator.agent_logger import AgentLogger
+from mao.orchestrator.utils.model_utils import calculate_cost, convert_model_name
 
 
 class ClaudeCodeExecutor:
     """エージェント実行エンジン（Claude Code CLI使用）"""
 
-    def __init__(self):
-        """Claude Code CLIを使用するエージェント実行エンジン"""
+    def __init__(self, allow_unsafe_operations: bool = False):
+        """Claude Code CLIを使用するエージェント実行エンジン
+
+        Args:
+            allow_unsafe_operations: --dangerously-skip-permissions を使用するか
+                                     (デフォルト: False - 安全モード)
+        """
         # claude-code コマンドが利用可能かチェック
         self.claude_code_path = shutil.which("claude-code") or shutil.which("claude")
+        self.allow_unsafe_operations = allow_unsafe_operations
 
         if not self.claude_code_path:
             raise ValueError(
@@ -43,6 +51,7 @@ class ClaudeCodeExecutor:
         temperature: float = 1.0,
         system: Optional[str] = None,
         work_dir: Optional[Path] = None,
+        log_callback: Optional[callable] = None,
     ) -> Dict[str, Any]:
         """
         エージェントを実行（Claude Code CLI経由）
@@ -55,6 +64,7 @@ class ClaudeCodeExecutor:
             temperature: 温度パラメータ（未使用、互換性のため）
             system: システムプロンプト（--append-system-promptで指定）
             work_dir: 作業ディレクトリ（Noneの場合は一時ディレクトリ）
+            log_callback: リアルタイムログ出力を受け取るコールバック関数
 
         Returns:
             実行結果
@@ -62,8 +72,19 @@ class ClaudeCodeExecutor:
         if logger:
             logger.info("エージェント実行を開始（Claude Code CLI経由）")
 
+        # プロンプトの検証
+        if not prompt or not prompt.strip():
+            error_msg = "プロンプトが空です"
+            if logger:
+                logger.error(error_msg)
+            return {
+                "success": False,
+                "error": error_msg,
+                "model": model,
+            }
+
         # モデル名を短縮名に変換
-        model_short = self._convert_model_name(model)
+        model_short = convert_model_name(model)
 
         # 作業ディレクトリを作成
         if work_dir is None:
@@ -80,39 +101,81 @@ class ClaudeCodeExecutor:
 
             # Claude CLIを実行
             # --print: 非対話的出力
-            # --no-session-persistence: セッション保存を無効化
             # --model: モデル指定
-            # --add-dir: 作業ディレクトリへのアクセスを許可
+            # プロンプトはstdinから渡す
             cmd = [
                 self.claude_code_path,
                 "--print",
-                "--no-session-persistence",
                 "--model", model_short,
-                "--add-dir", str(work_dir),
             ]
+
+            # セキュリティ設定に基づいてパーミッションスキップ
+            if self.allow_unsafe_operations:
+                cmd.append("--dangerously-skip-permissions")
+                if logger:
+                    logger.warning("Running in unsafe mode: --dangerously-skip-permissions enabled")
+
+            # 作業ディレクトリを追加
+            if work_dir:
+                cmd.extend(["--add-dir", str(work_dir)])
 
             # システムプロンプトがある場合
             if system:
                 cmd.extend(["--append-system-prompt", system])
 
-            # プロンプトを引数として追加
-            cmd.append(prompt)
-
             if logger:
-                logger.info(f"実行コマンド: {' '.join(cmd[:5])}... (省略)")
+                # デバッグ用：完全なコマンドをログ出力
+                cmd_str = ' '.join(f'"{c}"' if ' ' in str(c) else str(c) for c in cmd)
+                logger.info(f"実行コマンド: {cmd_str}")
+                logger.info(f"プロンプト（stdin経由）: {prompt[:50]}...")
 
+            # プロンプトをstdin経由で渡す
             process = await asyncio.create_subprocess_exec(
                 *cmd,
+                stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=str(work_dir),
             )
 
-            # 出力を待つ
-            stdout, stderr = await process.communicate()
+            # stdinにプロンプトを書き込む
+            if process.stdin:
+                process.stdin.write(prompt.encode())
+                await process.stdin.drain()
+                process.stdin.close()
+
+            # リアルタイムでstdout/stderrを読み取る
+            stdout_lines = []
+            stderr_lines = []
+
+            async def read_stream(stream, lines_list, prefix):
+                """ストリームを読み取ってコールバックを呼ぶ"""
+                while True:
+                    line = await stream.readline()
+                    if not line:
+                        break
+                    line_text = line.decode().rstrip()
+                    lines_list.append(line_text)
+
+                    # コールバックがあれば呼ぶ
+                    if log_callback:
+                        log_callback(f"{prefix}{line_text}")
+
+                    # ロガーにも出力
+                    if logger and line_text:
+                        logger.info(f"{prefix}{line_text}")
+
+            # stdout と stderr を並行して読み取る
+            await asyncio.gather(
+                read_stream(process.stdout, stdout_lines, ""),
+                read_stream(process.stderr, stderr_lines, "[stderr] "),
+            )
+
+            # プロセスの終了を待つ
+            await process.wait()
 
             if process.returncode != 0:
-                error_msg = stderr.decode() if stderr else "Unknown error"
+                error_msg = "\n".join(stderr_lines) if stderr_lines else "Unknown error"
                 if logger:
                     logger.error(f"Claude Code CLI実行エラー: {error_msg}")
 
@@ -123,7 +186,7 @@ class ClaudeCodeExecutor:
                 }
 
             # 出力を取得
-            response_text = stdout.decode().strip()
+            response_text = "\n".join(stdout_lines).strip()
 
             if logger:
                 logger.result(f"応答を受信（{len(response_text)}文字）")
@@ -145,13 +208,61 @@ class ClaudeCodeExecutor:
                 "stop_reason": "end_turn",
             }
 
-        except Exception as e:
+        except asyncio.TimeoutError:
+            error_msg = "Claude Code CLI execution timeout"
             if logger:
-                logger.error(f"例外が発生: {str(e)}")
+                logger.error(error_msg)
 
             return {
                 "success": False,
-                "error": str(e),
+                "error": error_msg,
+                "error_type": "timeout",
+                "model": model,
+            }
+        except PermissionError as e:
+            error_msg = f"Permission denied: {str(e)}"
+            if logger:
+                logger.error(error_msg)
+
+            return {
+                "success": False,
+                "error": error_msg,
+                "error_type": "permission",
+                "model": model,
+            }
+        except FileNotFoundError as e:
+            error_msg = f"File not found: {str(e)}"
+            if logger:
+                logger.error(error_msg)
+
+            return {
+                "success": False,
+                "error": error_msg,
+                "error_type": "file_not_found",
+                "model": model,
+            }
+        except subprocess.SubprocessError as e:
+            error_msg = f"Subprocess error: {str(e)}"
+            if logger:
+                logger.error(error_msg)
+
+            return {
+                "success": False,
+                "error": error_msg,
+                "error_type": "subprocess",
+                "model": model,
+            }
+        except Exception as e:
+            # その他の予期しないエラー
+            error_msg = f"Unexpected error: {str(e)}"
+            if logger:
+                logger.error(f"{error_msg} (type: {type(e).__name__})")
+
+            return {
+                "success": False,
+                "error": error_msg,
+                "error_type": "unexpected",
+                "exception_class": type(e).__name__,
                 "model": model,
             }
         finally:
@@ -160,8 +271,14 @@ class ClaudeCodeExecutor:
             if cleanup_work_dir:
                 try:
                     shutil.rmtree(work_dir)
-                except Exception:
-                    pass
+                except OSError as e:
+                    # クリーンアップ失敗は警告のみ（致命的ではない）
+                    if logger:
+                        logger.warning(f"Failed to cleanup temporary directory {work_dir}: {e}")
+                except Exception as e:
+                    # 予期しないエラーも記録
+                    if logger:
+                        logger.warning(f"Unexpected error during cleanup: {e}")
 
     async def execute_agent_streaming(
         self,
@@ -213,49 +330,6 @@ class ClaudeCodeExecutor:
             # エラーイベント
             yield {"type": "error", "error": result.get("error", "Unknown error")}
 
-    def _convert_model_name(self, model: str) -> str:
-        """モデル名を短縮名に変換
-
-        Args:
-            model: フルモデル名
-
-        Returns:
-            短縮名（opus, sonnet, haiku）
-        """
-        model_lower = model.lower()
-        if "opus" in model_lower:
-            return "opus"
-        elif "sonnet" in model_lower:
-            return "sonnet"
-        elif "haiku" in model_lower:
-            return "haiku"
-        else:
-            # デフォルトはsonnet
-            return "sonnet"
-
-    def _calculate_cost(self, model: str, usage: Dict[str, int]) -> float:
-        """コストを計算（概算）
-
-        Args:
-            model: モデル名
-            usage: トークン使用量
-
-        Returns:
-            コスト（USD）
-        """
-        # 価格表（$per 1M tokens）
-        pricing = {
-            "claude-opus-4-20250514": {"input": 15.0, "output": 75.0},
-            "claude-sonnet-4-20250514": {"input": 3.0, "output": 15.0},
-            "claude-haiku-4-20250514": {"input": 0.25, "output": 1.25},
-        }
-
-        price = pricing.get(model, {"input": 3.0, "output": 15.0})
-
-        input_cost = usage.get("input_tokens", 0) / 1_000_000 * price["input"]
-        output_cost = usage.get("output_tokens", 0) / 1_000_000 * price["output"]
-
-        return input_cost + output_cost
 
 
 class AgentProcess:

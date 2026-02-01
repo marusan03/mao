@@ -2,7 +2,7 @@
 Main Textual dashboard
 """
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List, Dict, Any
 import time
 import asyncio
 
@@ -27,7 +27,7 @@ from mao.ui.widgets.progress_widget import (
 from mao.ui.widgets.approval_widget import UnifiedApprovalPanel
 
 
-class AgentStatusWidget(Static):
+class AgentStatusWidget(Static, can_focus=True):
     """エージェント状態表示ウィジェット"""
 
     def __init__(self, *args, **kwargs):
@@ -146,11 +146,13 @@ class Dashboard(App):
         row-span: 2;
         border: solid green;
         padding: 1;
+        overflow-y: auto;  /* スクロール可能にする */
     }
 
     #task_progress {
         border: solid blue;
         padding: 1;
+        overflow-y: auto;
     }
 
     #metrics {
@@ -167,6 +169,7 @@ class Dashboard(App):
     #activity {
         border: solid cyan;
         padding: 1;
+        overflow-y: auto;
     }
 
     #task_control {
@@ -181,6 +184,7 @@ class Dashboard(App):
         border: solid cyan;
         padding: 1;
         height: 100%;
+        overflow-y: auto;
     }
 
     Button {
@@ -235,7 +239,9 @@ class Dashboard(App):
         self.executor_type = None
 
         try:
-            claude_executor = ClaudeCodeExecutor()
+            claude_executor = ClaudeCodeExecutor(
+                allow_unsafe_operations=config.security.allow_unsafe_operations
+            )
             if claude_executor.is_available():
                 self.executor = claude_executor
                 self.executor_type = "claude_code"
@@ -385,6 +391,10 @@ class Dashboard(App):
                     prompt=self.initial_prompt,
                     model=self.initial_model,
                 )
+
+    def action_quit(self) -> None:
+        """アプリケーションを終了"""
+        self.exit()
 
     def action_refresh(self) -> None:
         """画面をリフレッシュ"""

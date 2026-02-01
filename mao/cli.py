@@ -112,13 +112,13 @@ def main():
 @click.option(
     "--tmux-layout",
     type=click.Choice(["tiled", "horizontal", "vertical", "main-horizontal", "main-vertical", "grid"]),
-    default="tiled",
-    help="tmux layout style (grid for 3x3 multi-agent layout)",
+    default="grid",
+    help="tmux layout style (default: grid for 3x3 multi-agent layout)",
 )
 @click.option(
     "--grid",
     is_flag=True,
-    help="Use 3x3 grid layout for multi-agent execution (shorthand for --tmux-layout=grid)",
+    help="Use 3x3 grid layout for multi-agent execution (same as --tmux-layout=grid)",
 )
 @click.option(
     "--task",
@@ -148,11 +148,25 @@ def start(
     role: str,
     model: str,
 ):
-    """Start the Multi-Agent Orchestrator dashboard"""
+    """Start the Multi-Agent Orchestrator in interactive mode"""
     project_path = Path(project_dir).resolve()
 
-    console.print(f"[bold green]Starting Multi-Agent Orchestrator[/bold green]")
-    console.print(f"Project: {project_path}")
+    console.print(f"\n[bold green]🚀 Multi-Agent Orchestrator[/bold green]")
+    console.print(f"[dim]Project: {project_path}[/dim]")
+
+    # 初期プロンプトの処理
+    initial_prompt = prompt or task
+
+    if not initial_prompt:
+        console.print("\n[yellow]💡 使い方:[/yellow]")
+        console.print("  タスクを指定してエージェントを起動:")
+        console.print("    [cyan]mao start \"ログイン機能のテストを書いて\"[/cyan]")
+        console.print("\n  グリッドレイアウトで複数エージェント起動:")
+        console.print("    [cyan]mao start --grid \"認証システムを実装\"[/cyan]")
+        console.print("\n  詳細: [dim]cat USAGE.md[/dim]\n")
+    else:
+        console.print(f"\n[cyan]📋 タスク:[/cyan] {initial_prompt}")
+        console.print(f"[dim]Role: {role} | Model: {model}[/dim]")
 
     # プロジェクト設定読み込み
     from mao.orchestrator.project_loader import ProjectLoader
@@ -166,13 +180,7 @@ def start(
         )
         sys.exit(1)
 
-    console.print(f"[dim]Configuration loaded from {config.config_file}[/dim]")
-
-    # 初期プロンプトの処理
-    initial_prompt = prompt or task
-    if initial_prompt:
-        console.print(f"[cyan]Initial task:[/cyan] {initial_prompt}")
-        console.print(f"[dim]Role: {role}, Model: {model}[/dim]")
+    console.print(f"[dim]Config: {config.config_file}[/dim]")
 
     # tmux設定
     tmux_manager = None
@@ -181,7 +189,18 @@ def start(
     if tmux:
         from mao.orchestrator.tmux_manager import TmuxManager
 
-        tmux_manager = TmuxManager(use_grid_layout=use_grid)
+        # グリッド設定を取得（config.defaultsがあればそれを使用）
+        if config.defaults and config.defaults.tmux:
+            grid_config = config.defaults.tmux.grid
+            tmux_manager = TmuxManager(
+                use_grid_layout=use_grid,
+                grid_width=grid_config.width,
+                grid_height=grid_config.height,
+                num_workers=grid_config.num_workers,
+            )
+        else:
+            # デフォルト値を使用
+            tmux_manager = TmuxManager(use_grid_layout=use_grid)
 
         if not tmux_manager.is_tmux_available():
             console.print("[yellow]⚠ tmux not found, running without tmux monitor[/yellow]")
@@ -189,17 +208,19 @@ def start(
         else:
             if tmux_manager.create_session():
                 if use_grid:
-                    console.print(f"[green]✓ tmux session created (3x3 grid layout)[/green]")
-                    console.print(f"  Manager + 8 Workers ready")
+                    console.print(f"\n[green]✓ Grid Layout[/green]")
+                    console.print(f"  📋 Manager + 🔧 {tmux_manager.num_workers} Workers")
                 else:
                     tmux_manager.set_layout(tmux_layout)
-                    console.print(f"[green]✓ tmux session created[/green]")
-                console.print(f"  View agents: [cyan]tmux attach -t mao[/cyan]")
+                    console.print(f"\n[green]✓ tmux session ready[/green]")
+                console.print(f"  [cyan]tmux attach -t mao[/cyan] でエージェントを確認")
             else:
                 tmux_manager = None
 
-    # ダッシュボード起動
-    from mao.ui.dashboard import Dashboard
+    # ダッシュボード起動（常にインタラクティブモード）
+    from mao.ui.dashboard_interactive import InteractiveDashboard as Dashboard
+    console.print("\n[bold green]🤝 インタラクティブモード[/bold green]")
+    console.print("[dim]マネージャーと対話しながらタスクを進めます[/dim]")
 
     # モデル名をAPIモデルIDに変換
     model_map = {
@@ -219,6 +240,9 @@ def start(
         initial_role=role,
         initial_model=model_id,
     )
+
+    console.print("\n[bold]ダッシュボード起動中...[/bold]")
+    console.print("[dim]キーボード操作: Ctrl+Q=終了 | Ctrl+R=更新 | Ctrl+M=チャット | Tab=移動[/dim]\n")
 
     try:
         app.run()
@@ -288,6 +312,13 @@ state:
 logging:
   level: INFO
   file: .mao/orchestrator.log
+
+# Security settings
+security:
+  # WARNING: Setting allow_unsafe_operations to true gives agents unrestricted file system access
+  allow_unsafe_operations: false  # Use --dangerously-skip-permissions flag
+  allow_file_write: true
+  allow_command_execution: true
 """
         config_file.write_text(default_config)
 
@@ -872,6 +903,457 @@ def skills_proposals():
         console.print(f"  Security: [{risk_color}]{proposal.review.risk_level}[/{risk_color}]")
         console.print(f"  Proposed: {proposal.proposed_at}")
         console.print()
+
+
+@main.group()
+def feedback():
+    """Manage feedback for MAO improvements"""
+    pass
+
+
+@feedback.command("send")
+@click.option("--title", "-t", required=True, help="Feedback title")
+@click.option("--description", "-d", required=True, help="Detailed description")
+@click.option(
+    "--category",
+    "-c",
+    type=click.Choice(["bug", "feature", "improvement", "documentation"]),
+    default="improvement",
+    help="Feedback category",
+)
+@click.option(
+    "--priority",
+    "-p",
+    type=click.Choice(["low", "medium", "high", "critical"]),
+    default="medium",
+    help="Priority level",
+)
+@click.option("--project-dir", default=".", help="Project directory")
+def send_feedback(title: str, description: str, category: str, priority: str, project_dir: str):
+    """Send feedback about MAO"""
+    from mao.orchestrator.feedback_manager import FeedbackManager
+
+    project_path = Path(project_dir).resolve()
+    manager = FeedbackManager(project_path=project_path)
+
+    feedback = manager.add_feedback(
+        title=title,
+        description=description,
+        category=category,
+        priority=priority,
+        agent_id="user",
+        session_id="manual",
+    )
+
+    console.print(f"\n[bold green]✓ Feedback sent![/bold green]")
+    console.print(f"ID: {feedback.id}")
+    console.print(f"Title: {feedback.title}")
+    console.print(f"Category: {feedback.category} | Priority: {feedback.priority}")
+    console.print(f"\nUse [cyan]mao feedback list[/cyan] to view all feedback")
+
+
+@feedback.command("list")
+@click.option(
+    "--status",
+    type=click.Choice(["open", "in_progress", "completed", "rejected"]),
+    help="Filter by status",
+)
+@click.option(
+    "--category",
+    type=click.Choice(["bug", "feature", "improvement", "documentation"]),
+    help="Filter by category",
+)
+@click.option(
+    "--priority",
+    type=click.Choice(["low", "medium", "high", "critical"]),
+    help="Filter by priority",
+)
+@click.option("--project-dir", default=".", help="Project directory")
+def list_feedbacks(status: Optional[str], category: Optional[str], priority: Optional[str], project_dir: str):
+    """List all feedback"""
+    from mao.orchestrator.feedback_manager import FeedbackManager
+    from rich.table import Table
+
+    project_path = Path(project_dir).resolve()
+    manager = FeedbackManager(project_path=project_path)
+
+    feedbacks = manager.list_feedbacks(status=status, category=category, priority=priority)
+
+    if not feedbacks:
+        console.print("\n[dim]No feedback found[/dim]")
+        return
+
+    # 統計を表示
+    stats = manager.get_stats()
+    console.print(f"\n[bold]Feedback Statistics[/bold]")
+    console.print(f"Total: {stats['total']} | Open: {stats['open']} | In Progress: {stats['in_progress']} | Completed: {stats['completed']}")
+    console.print()
+
+    # テーブル表示
+    table = Table(show_header=True)
+    table.add_column("ID", style="cyan", no_wrap=True)
+    table.add_column("Title", style="white")
+    table.add_column("Category", style="magenta")
+    table.add_column("Priority", style="yellow")
+    table.add_column("Status", style="green")
+    table.add_column("Created", style="dim")
+
+    for fb in feedbacks:
+        # 優先度の色分け
+        priority_color = {
+            "low": "dim",
+            "medium": "yellow",
+            "high": "bold yellow",
+            "critical": "bold red",
+        }.get(fb.priority, "white")
+
+        # ステータスの色分け
+        status_color = {
+            "open": "cyan",
+            "in_progress": "yellow",
+            "completed": "green",
+            "rejected": "red",
+        }.get(fb.status, "white")
+
+        table.add_row(
+            fb.id[-12:],  # 短縮ID
+            fb.title[:40],  # タイトル（最大40文字）
+            fb.category,
+            f"[{priority_color}]{fb.priority}[/{priority_color}]",
+            f"[{status_color}]{fb.status}[/{status_color}]",
+            fb.created_at[:10],  # 日付のみ
+        )
+
+    console.print(table)
+    console.print(f"\n[dim]Use [cyan]mao feedback improve <ID>[/cyan] to work on a feedback[/dim]")
+
+
+@feedback.command("improve")
+@click.argument("feedback_id")
+@click.option("--project-dir", default=".", help="Project directory")
+@click.option("--model", default="sonnet", type=click.Choice(["sonnet", "opus", "haiku"]), help="Model to use")
+@click.option("--no-issue", is_flag=True, help="Skip creating GitHub issue")
+@click.option("--no-pr", is_flag=True, help="Skip creating GitHub PR")
+def improve_feedback(feedback_id: str, project_dir: str, model: str, no_issue: bool, no_pr: bool):
+    """Work on feedback - run MAO to improve MAO with issue/PR creation"""
+    from mao.orchestrator.feedback_manager import FeedbackManager
+    from mao.orchestrator.project_loader import load_project_config
+    from mao.ui.dashboard_interactive import InteractiveDashboard
+    import subprocess
+    import json
+
+    project_path = Path(project_dir).resolve()
+    manager = FeedbackManager(project_path=project_path)
+
+    # フィードバックを取得
+    fb = manager.get_feedback(feedback_id)
+    if not fb:
+        console.print(f"[bold red]✗ Feedback not found: {feedback_id}[/bold red]")
+        return
+
+    console.print(f"\n[bold cyan]📋 Feedback: {fb.title}[/bold cyan]")
+    console.print(f"Category: {fb.category} | Priority: {fb.priority}")
+    console.print(f"Description:\n{fb.description}\n")
+
+    # Git リポジトリかチェック
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--is-inside-work-tree"],
+            cwd=project_path,
+            capture_output=True,
+            timeout=5,
+        )
+        is_git_repo = result.returncode == 0
+    except Exception:
+        is_git_repo = False
+
+    if not is_git_repo:
+        console.print("[bold red]✗ Not a git repository[/bold red]")
+        return
+
+    # GitHub リポジトリかチェック
+    try:
+        result = subprocess.run(
+            ["gh", "repo", "view", "--json", "nameWithOwner"],
+            cwd=project_path,
+            capture_output=True,
+            timeout=5,
+        )
+        is_github_repo = result.returncode == 0
+        if is_github_repo:
+            repo_info = json.loads(result.stdout.decode())
+            repo_name = repo_info.get("nameWithOwner", "")
+    except Exception:
+        is_github_repo = False
+        repo_name = ""
+
+    # GitHub issue を作成
+    issue_number = None
+    if not no_issue and is_github_repo:
+        console.print("\n[bold]Creating GitHub issue...[/bold]")
+
+        # カテゴリに応じたラベル
+        labels = {
+            "bug": "bug",
+            "feature": "enhancement",
+            "improvement": "enhancement",
+            "documentation": "documentation",
+        }
+        label = labels.get(fb.category, "enhancement")
+
+        # 優先度ラベル
+        priority_labels = {
+            "low": "priority: low",
+            "medium": "priority: medium",
+            "high": "priority: high",
+            "critical": "priority: critical",
+        }
+        priority_label = priority_labels.get(fb.priority, "priority: medium")
+
+        issue_body = f"""## Feedback ID
+{fb.id}
+
+## Category
+{fb.category}
+
+## Priority
+{fb.priority}
+
+## Description
+{fb.description}
+
+## Session Info
+- Agent: {fb.agent_id}
+- Session: {fb.session_id}
+- Created: {fb.created_at}
+
+---
+*This issue was automatically created from MAO feedback system.*
+"""
+
+        try:
+            result = subprocess.run(
+                [
+                    "gh", "issue", "create",
+                    "--title", fb.title,
+                    "--body", issue_body,
+                    "--label", label,
+                    "--label", priority_label,
+                    "--label", "mao-feedback",
+                ],
+                cwd=project_path,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+
+            if result.returncode == 0:
+                # issue URL から番号を抽出
+                issue_url = result.stdout.strip()
+                issue_number = issue_url.split("/")[-1]
+                console.print(f"[bold green]✓ Issue created: #{issue_number}[/bold green]")
+                console.print(f"[dim]{issue_url}[/dim]")
+            else:
+                console.print(f"[bold yellow]⚠ Failed to create issue: {result.stderr}[/bold yellow]")
+        except Exception as e:
+            console.print(f"[bold yellow]⚠ Failed to create issue: {e}[/bold yellow]")
+
+    # ステータスを in_progress に更新
+    manager.update_status(feedback_id, "in_progress")
+
+    # ブランチ名を生成
+    branch_name = f"feedback/{fb.id[-12:]}-{fb.title[:30].replace(' ', '-').lower()}"
+
+    # ブランチを作成
+    console.print(f"\n[bold]Creating branch: {branch_name}[/bold]")
+    try:
+        subprocess.run(
+            ["git", "checkout", "-b", branch_name],
+            cwd=project_path,
+            check=True,
+            timeout=10,
+        )
+        console.print("[bold green]✓ Branch created[/bold green]")
+    except subprocess.CalledProcessError as e:
+        console.print(f"[bold yellow]⚠ Branch may already exist, switching to it[/bold yellow]")
+        try:
+            subprocess.run(["git", "checkout", branch_name], cwd=project_path, check=True, timeout=10)
+        except Exception:
+            console.print(f"[bold red]✗ Failed to checkout branch[/bold red]")
+            return
+
+    # プロジェクト設定を読み込み
+    try:
+        config = load_project_config(project_path)
+    except Exception as e:
+        console.print(f"[bold red]✗ Failed to load config: {e}[/bold red]")
+        return
+
+    # MAO を起動してフィードバックに取り組む
+    console.print("\n[bold green]🚀 Starting MAO to work on this feedback...[/bold green]")
+    if issue_number:
+        console.print(f"[dim]Working on issue #{issue_number}[/dim]\n")
+
+    # フィードバックを含めたプロンプトを作成
+    prompt = f"""MAO プロジェクトの改善フィードバック:
+
+【タイトル】{fb.title}
+
+【カテゴリ】{fb.category}
+
+【優先度】{fb.priority}
+
+【GitHub Issue】{"#" + issue_number if issue_number else "なし"}
+
+【詳細】
+{fb.description}
+
+このフィードバックに基づいて、MAO プロジェクトを改善してください。
+必要なファイルの変更、テストの追加、ドキュメントの更新などを行ってください。
+
+完了したら、変更内容を git commit してください。
+コミットメッセージには issue 番号（#{issue_number if issue_number else "N/A"}）を含めてください。"""
+
+    # モデル名変換
+    model_map = {
+        "sonnet": "claude-sonnet-4-20250514",
+        "opus": "claude-opus-4-20250514",
+        "haiku": "claude-3-5-haiku-20241022",
+    }
+    model_id = model_map.get(model, "claude-sonnet-4-20250514")
+
+    # InteractiveDashboard を起動
+    app = InteractiveDashboard(
+        project_path=project_path,
+        config=config,
+        use_redis=False,
+        initial_prompt=prompt,
+        initial_model=model_id,
+    )
+
+    try:
+        app.run()
+
+        # 完了後の処理
+        console.print("\n[bold]Work completed![/bold]")
+
+        # PR を作成するか確認
+        if not no_pr and is_github_repo and click.confirm("Create GitHub PR?"):
+            console.print("\n[bold]Creating Pull Request...[/bold]")
+
+            # 変更をプッシュ
+            try:
+                subprocess.run(
+                    ["git", "push", "-u", "origin", branch_name],
+                    cwd=project_path,
+                    check=True,
+                    timeout=60,
+                )
+                console.print("[bold green]✓ Changes pushed[/bold green]")
+            except subprocess.CalledProcessError as e:
+                console.print(f"[bold red]✗ Failed to push: {e}[/bold red]")
+                return
+
+            # PR の本文を作成
+            pr_body = f"""## Summary
+This PR addresses feedback: {fb.title}
+
+## Feedback Details
+- **Category**: {fb.category}
+- **Priority**: {fb.priority}
+- **Feedback ID**: {fb.id}
+"""
+
+            if issue_number:
+                pr_body += f"\nCloses #{issue_number}\n"
+
+            pr_body += f"""
+## Description
+{fb.description}
+
+## Changes
+<!-- MAO による変更内容 -->
+
+## Test Plan
+- [ ] Tests added/updated
+- [ ] Documentation updated
+- [ ] Changes reviewed
+
+---
+*This PR was created automatically by MAO feedback improvement workflow.*
+"""
+
+            # PR を作成
+            try:
+                result = subprocess.run(
+                    [
+                        "gh", "pr", "create",
+                        "--title", f"{fb.category}: {fb.title}",
+                        "--body", pr_body,
+                        "--label", "mao-feedback",
+                    ],
+                    cwd=project_path,
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                )
+
+                if result.returncode == 0:
+                    pr_url = result.stdout.strip()
+                    console.print(f"[bold green]✓ PR created![/bold green]")
+                    console.print(f"[cyan]{pr_url}[/cyan]")
+
+                    # フィードバックを completed に
+                    manager.update_status(feedback_id, "completed")
+                    console.print("[bold green]✓ Feedback marked as completed[/bold green]")
+                else:
+                    console.print(f"[bold yellow]⚠ Failed to create PR: {result.stderr}[/bold yellow]")
+            except Exception as e:
+                console.print(f"[bold red]✗ Failed to create PR: {e}[/bold red]")
+
+        elif click.confirm("Mark this feedback as completed?"):
+            manager.update_status(feedback_id, "completed")
+            console.print("[bold green]✓ Feedback marked as completed[/bold green]")
+
+    except Exception as e:
+        console.print(f"[bold red]✗ Error: {e}[/bold red]")
+
+
+@feedback.command("show")
+@click.argument("feedback_id")
+@click.option("--project-dir", default=".", help="Project directory")
+def show_feedback(feedback_id: str, project_dir: str):
+    """Show detailed feedback information"""
+    from mao.orchestrator.feedback_manager import FeedbackManager
+    from rich.panel import Panel
+    from rich.markdown import Markdown
+
+    project_path = Path(project_dir).resolve()
+    manager = FeedbackManager(project_path=project_path)
+
+    fb = manager.get_feedback(feedback_id)
+    if not fb:
+        console.print(f"[bold red]✗ Feedback not found: {feedback_id}[/bold red]")
+        return
+
+    # 詳細情報を表示
+    console.print()
+    console.print(Panel(
+        f"[bold]{fb.title}[/bold]\n\n"
+        f"[cyan]ID:[/cyan] {fb.id}\n"
+        f"[cyan]Category:[/cyan] {fb.category}\n"
+        f"[cyan]Priority:[/cyan] {fb.priority}\n"
+        f"[cyan]Status:[/cyan] {fb.status}\n"
+        f"[cyan]Agent:[/cyan] {fb.agent_id}\n"
+        f"[cyan]Session:[/cyan] {fb.session_id}\n"
+        f"[cyan]Created:[/cyan] {fb.created_at}",
+        title="Feedback Details",
+        border_style="cyan",
+    ))
+
+    console.print("\n[bold]Description:[/bold]")
+    console.print(Markdown(fb.description))
+    console.print()
 
 
 if __name__ == "__main__":

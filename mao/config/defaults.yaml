@@ -1,0 +1,30 @@
+# MAO default configuration values
+
+# Tmux grid layout settings
+tmux:
+  grid:
+    width: 240
+    height: 60
+    num_workers: 8
+    # Available layouts: tiled, even-horizontal, even-vertical, main-horizontal, main-vertical
+    default_layout: "tiled"
+
+# Model settings
+models:
+  default: "claude-sonnet-4-20250514"
+  # Short name mappings
+  aliases:
+    opus: "claude-opus-4-20250514"
+    sonnet: "claude-sonnet-4-20250514"
+    haiku: "claude-haiku-4-20250514"
+
+# Agent execution settings
+execution:
+  max_tokens: 4096
+  temperature: 1.0
+  timeout: 300  # seconds
+
+# Logging settings
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"

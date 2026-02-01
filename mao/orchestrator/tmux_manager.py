@@ -2,6 +2,8 @@
 tmux session management for agent visualization
 """
 import subprocess
+import shlex
+import logging
 from typing import Optional, Dict
 from pathlib import Path
 
@@ -9,11 +11,23 @@ from pathlib import Path
 class TmuxManager:
     """tmuxセッションを管理してエージェントごとにペインを作成"""
 
-    def __init__(self, session_name: str = "mao", use_grid_layout: bool = False):
+    def __init__(
+        self,
+        session_name: str = "mao",
+        use_grid_layout: bool = False,
+        grid_width: int = 240,
+        grid_height: int = 60,
+        num_workers: int = 8,
+        logger: Optional[logging.Logger] = None,
+    ):
         self.session_name = session_name
         self.use_grid_layout = use_grid_layout
+        self.grid_width = grid_width
+        self.grid_height = grid_height
+        self.num_workers = num_workers
         self.panes: Dict[str, str] = {}  # agent_id -> pane_id
         self.grid_panes: Dict[str, str] = {}  # role -> pane_id (grid mode)
+        self.logger = logger or logging.getLogger(__name__)
 
     def is_tmux_available(self) -> bool:
         """tmuxが利用可能かチェック"""
@@ -36,7 +50,7 @@ class TmuxManager:
     def create_session(self) -> bool:
         """tmuxセッションを作成"""
         if self.session_exists():
-            print(f"tmux session '{self.session_name}' already exists")
+            self.logger.info(f"tmux session '{self.session_name}' already exists")
             return True
 
         if self.use_grid_layout:
@@ -63,13 +77,13 @@ class TmuxManager:
             return True
 
         except subprocess.CalledProcessError as e:
-            print(f"Failed to create tmux session: {e}")
+            self.logger.error(f"Failed to create tmux session: {e}")
             return False
 
     def create_session_with_grid(self) -> bool:
         """3×3グリッドレイアウトでセッションを作成（multi-agent-shogun風）"""
         try:
-            # 1. セッション作成
+            # 1. セッション作成（大きめのウィンドウサイズで）
             subprocess.run(
                 [
                     "tmux",
@@ -79,38 +93,105 @@ class TmuxManager:
                     self.session_name,
                     "-n",
                     "multiagent",
+                    "-x", str(self.grid_width),
+                    "-y", str(self.grid_height),
                 ],
                 check=True,
             )
 
-            # 2. 3×3グリッド作成
-            # 最初に3列作成（水平分割×2）
-            subprocess.run(["tmux", "split-window", "-h", "-t", f"{self.session_name}:0.0"], check=True)
-            subprocess.run(["tmux", "split-window", "-h", "-t", f"{self.session_name}:0.1"], check=True)
+            # ペインの境界にタイトルを表示する設定
+            subprocess.run(
+                ["tmux", "set-option", "-t", self.session_name, "pane-border-status", "top"],
+                check=True,
+            )
+            subprocess.run(
+                ["tmux", "set-option", "-t", self.session_name, "pane-border-format",
+                 "#[fg=cyan,bold] #{pane_title} "],
+                check=True,
+            )
 
-            # 各列を3行に分割（垂直分割×2 for each column）
-            for col in range(3):
-                subprocess.run(["tmux", "split-window", "-v", "-t", f"{self.session_name}:0.{col * 3}"], check=True)
-                subprocess.run(["tmux", "split-window", "-v", "-t", f"{self.session_name}:0.{col * 3 + 1}"], check=True)
+            # 2. 3×3グリッド作成（9ペイン）
+            # 方法: まず3行作成、次に各行を3列に分割
+
+            # ステップ1: 縦に2回分割して3行作る
+            subprocess.run(
+                ["tmux", "split-window", "-v", "-t", f"{self.session_name}:0.0"],
+                check=True,
+            )
+            subprocess.run(
+                ["tmux", "split-window", "-v", "-t", f"{self.session_name}:0.0"],
+                check=True,
+            )
+
+            # ステップ2: 各行を横に2回分割して3列にする
+            # 1行目（pane 0）を3列に
+            subprocess.run(
+                ["tmux", "split-window", "-h", "-t", f"{self.session_name}:0.0"],
+                check=True,
+            )
+            subprocess.run(
+                ["tmux", "split-window", "-h", "-t", f"{self.session_name}:0.1"],
+                check=True,
+            )
+
+            # 2行目（pane 3）を3列に
+            subprocess.run(
+                ["tmux", "split-window", "-h", "-t", f"{self.session_name}:0.3"],
+                check=True,
+            )
+            subprocess.run(
+                ["tmux", "split-window", "-h", "-t", f"{self.session_name}:0.4"],
+                check=True,
+            )
+
+            # 3行目（pane 6）を3列に
+            subprocess.run(
+                ["tmux", "split-window", "-h", "-t", f"{self.session_name}:0.6"],
+                check=True,
+            )
+            subprocess.run(
+                ["tmux", "split-window", "-h", "-t", f"{self.session_name}:0.7"],
+                check=True,
+            )
 
             # 3. レイアウトを均等に調整
-            subprocess.run(["tmux", "select-layout", "-t", f"{self.session_name}:0", "tiled"], check=True)
+            subprocess.run(
+                ["tmux", "select-layout", "-t", f"{self.session_name}:0", "tiled"],
+                check=True,
+            )
 
             # 4. 各ペインに役割を割り当て
-            roles = ["manager", "worker-1", "worker-2", "worker-3", "worker-4", "worker-5", "worker-6", "worker-7", "worker-8"]
+            roles = ["manager"] + [f"worker-{i}" for i in range(1, self.num_workers + 1)]
 
             for idx, role in enumerate(roles):
                 pane_id = f"{self.session_name}:0.{idx}"
                 self.grid_panes[role] = pane_id
 
-                # ペインにヘッダーを表示
-                header = self._get_grid_pane_header(role, idx)
-                self._send_to_pane(pane_id, f"clear && cat << 'EOF'\n{header}\nEOF")
+                # ペインタイトルを設定
+                role_display = {
+                    "manager": "📋 MANAGER",
+                    "worker-1": "🔧 WORKER-1",
+                    "worker-2": "🔧 WORKER-2",
+                    "worker-3": "🔧 WORKER-3",
+                    "worker-4": "🔧 WORKER-4",
+                    "worker-5": "🔧 WORKER-5",
+                    "worker-6": "🔧 WORKER-6",
+                    "worker-7": "🔧 WORKER-7",
+                    "worker-8": "🔧 WORKER-8",
+                }.get(role, role.upper())
+
+                subprocess.run(
+                    ["tmux", "select-pane", "-t", pane_id, "-T", role_display],
+                    check=True,
+                )
+
+                # ペインをクリア（何も表示しない）
+                self._send_to_pane(pane_id, "clear")
 
             return True
 
         except subprocess.CalledProcessError as e:
-            print(f"Failed to create grid session: {e}")
+            self.logger.error(f"Failed to create grid session: {e}")
             return False
 
     def create_pane_for_agent(
@@ -149,10 +230,11 @@ Waiting for agent to start...
 """
             self._send_to_pane(pane_id, f"clear && cat << 'EOF'\n{header}\nEOF")
 
-            # ログファイルをtail
+            # ログファイルをtail（シェルインジェクション対策）
+            safe_log_file = shlex.quote(str(log_file))
             self._send_to_pane(
                 pane_id,
-                f"tail -f {log_file} 2>/dev/null || echo 'Waiting for log file...'",
+                f"tail -f {safe_log_file} 2>/dev/null || echo 'Waiting for log file...'",
             )
 
             # レイアウトを整理（tiled layout）
@@ -163,7 +245,7 @@ Waiting for agent to start...
             return pane_id
 
         except subprocess.CalledProcessError as e:
-            print(f"Failed to create pane for {agent_name}: {e}")
+            self.logger.error(f"Failed to create pane for {agent_name}: {e}")
             return None
 
     def remove_pane(self, agent_id: str) -> None:
@@ -181,9 +263,9 @@ Waiting for agent to start...
         if self.session_exists():
             try:
                 subprocess.run(["tmux", "kill-session", "-t", self.session_name])
-                print(f"✓ tmux session '{self.session_name}' destroyed")
+                self.logger.info(f"✓ tmux session '{self.session_name}' destroyed")
             except subprocess.CalledProcessError as e:
-                print(f"Failed to destroy session: {e}")
+                self.logger.error(f"Failed to destroy session: {e}")
 
     def _send_to_pane(self, pane_id: str, command: str) -> None:
         """ペインにコマンドを送信"""
@@ -211,27 +293,6 @@ Waiting for agent to start...
 Waiting for agents to start...
 """
 
-    def _get_grid_pane_header(self, role: str, idx: int) -> str:
-        """グリッドペイン用のヘッダー"""
-        role_display = {
-            "manager": "📋 MANAGER",
-            "worker-1": "🔧 WORKER-1",
-            "worker-2": "🔧 WORKER-2",
-            "worker-3": "🔧 WORKER-3",
-            "worker-4": "🔧 WORKER-4",
-            "worker-5": "🔧 WORKER-5",
-            "worker-6": "🔧 WORKER-6",
-            "worker-7": "🔧 WORKER-7",
-            "worker-8": "🔧 WORKER-8",
-        }.get(role, role.upper())
-
-        return f"""
-╔═══════════════════════════════════╗
-║  {role_display:<33s}║
-╚═══════════════════════════════════╝
-
-Status: Waiting for task...
-"""
 
     def set_layout(self, layout: str = "tiled") -> None:
         """レイアウトを変更
@@ -252,26 +313,19 @@ Status: Waiting for task...
             return None
 
         if role not in self.grid_panes:
-            print(f"Role {role} not found in grid layout")
+            self.logger.warning(f"Role {role} not found in grid layout")
             return None
 
         pane_id = self.grid_panes[role]
 
-        # エージェント情報でヘッダーを更新
-        header = f"""
-╔═══════════════════════════════════╗
-║  {role.upper():<33s}║
-║  ID: {agent_id:<29s}║
-╚═══════════════════════════════════╝
+        # ペインをクリア（ログファイルのtailが始まるまで空白）
+        self._send_to_pane(pane_id, "clear")
 
-Starting agent...
-"""
-        self._send_to_pane(pane_id, f"clear && cat << 'EOF'\n{header}\nEOF")
-
-        # ログファイルをtail
+        # ログファイルをtail（シェルインジェクション対策）
+        safe_log_file = shlex.quote(str(log_file))
         self._send_to_pane(
             pane_id,
-            f"tail -f {log_file} 2>/dev/null || echo 'Waiting for log file...'",
+            f"tail -f {safe_log_file} 2>/dev/null || echo 'Waiting for log file...'",
         )
 
         self.panes[agent_id] = pane_id

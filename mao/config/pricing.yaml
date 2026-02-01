@@ -1,0 +1,25 @@
+# Model pricing configuration
+# Prices are per 1M tokens in USD
+# Last updated: 2026-01-01
+
+models:
+  claude-opus-4-20250514:
+    input: 15.0
+    output: 75.0
+    description: "Most capable model for complex tasks"
+
+  claude-sonnet-4-20250514:
+    input: 3.0
+    output: 15.0
+    description: "Balanced performance and cost"
+
+  claude-haiku-4-20250514:
+    input: 0.25
+    output: 1.25
+    description: "Fast and economical for simple tasks"
+
+# Default pricing (used for unknown models)
+default:
+  input: 3.0
+  output: 15.0
+  description: "Default pricing (Sonnet equivalent)"
