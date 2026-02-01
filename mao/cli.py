@@ -11,6 +11,7 @@ import click
 from rich.console import Console
 
 from mao.version import __version__, get_git_commit
+from mao import cli_completion
 
 console = Console()
 
@@ -70,7 +71,7 @@ def version_callback(ctx, param, value):
     ctx.exit()
 
 
-@click.group()
+@click.group(name='mao')
 @click.option(
     '--version', '-v',
     is_flag=True,
@@ -118,12 +119,14 @@ def main():
     "--role",
     default="general",
     help="Agent role for the initial task (default: general)",
+    shell_complete=cli_completion.complete_roles,
 )
 @click.option(
     "--model",
     default="sonnet",
     type=click.Choice(["sonnet", "opus", "haiku"]),
     help="Model to use for the initial task (default: sonnet)",
+    shell_complete=cli_completion.complete_models,
 )
 def start(
     prompt: Optional[str],
@@ -1011,15 +1014,15 @@ def list_feedbacks(status: Optional[str], category: Optional[str], priority: Opt
 
 
 @feedback.command("improve")
-@click.argument("feedback_id")
+@click.argument("feedback_id", shell_complete=cli_completion.complete_feedback_ids)
 @click.option("--project-dir", default=".", help="Project directory")
-@click.option("--model", default="sonnet", type=click.Choice(["sonnet", "opus", "haiku"]), help="Model to use")
+@click.option("--model", default="sonnet", type=click.Choice(["sonnet", "opus", "haiku"]), help="Model to use", shell_complete=cli_completion.complete_models)
 @click.option("--no-issue", is_flag=True, help="Skip creating GitHub issue")
 @click.option("--no-pr", is_flag=True, help="Skip creating GitHub PR")
 def improve_feedback(feedback_id: str, project_dir: str, model: str, no_issue: bool, no_pr: bool):
     """Work on feedback - run MAO to improve MAO with issue/PR creation"""
     from mao.orchestrator.feedback_manager import FeedbackManager
-    from mao.orchestrator.project_loader import load_project_config
+    from mao.orchestrator.project_loader import ProjectLoader
     from mao.ui.dashboard_interactive import InteractiveDashboard
     import subprocess
     import json
@@ -1027,10 +1030,21 @@ def improve_feedback(feedback_id: str, project_dir: str, model: str, no_issue: b
     project_path = Path(project_dir).resolve()
     manager = FeedbackManager(project_path=project_path)
 
-    # フィードバックを取得
+    # フィードバックを取得（短縮IDにも対応）
     fb = manager.get_feedback(feedback_id)
+
+    # 短縮IDの場合、完全なIDを検索
+    if not fb:
+        # 全フィードバックから短縮IDで検索
+        all_feedbacks = manager.list_feedbacks()
+        for feedback in all_feedbacks:
+            if feedback.id.endswith(feedback_id):
+                fb = feedback
+                break
+
     if not fb:
         console.print(f"[bold red]✗ Feedback not found: {feedback_id}[/bold red]")
+        console.print("[dim]Use [cyan]mao feedback list[/cyan] to see available feedback IDs[/dim]")
         return
 
     console.print(f"\n[bold cyan]📋 Feedback: {fb.title}[/bold cyan]")
@@ -1166,7 +1180,8 @@ def improve_feedback(feedback_id: str, project_dir: str, model: str, no_issue: b
 
     # プロジェクト設定を読み込み
     try:
-        config = load_project_config(project_path)
+        loader = ProjectLoader(project_path)
+        config = loader.load()
     except Exception as e:
         console.print(f"[bold red]✗ Failed to load config: {e}[/bold red]")
         return
@@ -1302,7 +1317,7 @@ This PR addresses feedback: {fb.title}
 
 
 @feedback.command("show")
-@click.argument("feedback_id")
+@click.argument("feedback_id", shell_complete=cli_completion.complete_feedback_ids)
 @click.option("--project-dir", default=".", help="Project directory")
 def show_feedback(feedback_id: str, project_dir: str):
     """Show detailed feedback information"""
@@ -1314,8 +1329,18 @@ def show_feedback(feedback_id: str, project_dir: str):
     manager = FeedbackManager(project_path=project_path)
 
     fb = manager.get_feedback(feedback_id)
+
+    # 短縮IDの場合、完全なIDを検索
+    if not fb:
+        all_feedbacks = manager.list_feedbacks()
+        for feedback in all_feedbacks:
+            if feedback.id.endswith(feedback_id):
+                fb = feedback
+                break
+
     if not fb:
         console.print(f"[bold red]✗ Feedback not found: {feedback_id}[/bold red]")
+        console.print("[dim]Use [cyan]mao feedback list[/cyan] to see available feedback IDs[/dim]")
         return
 
     # 詳細情報を表示
@@ -1336,6 +1361,111 @@ def show_feedback(feedback_id: str, project_dir: str):
     console.print("\n[bold]Description:[/bold]")
     console.print(Markdown(fb.description))
     console.print()
+
+
+@main.command("completion")
+@click.argument("shell", type=click.Choice(["bash", "zsh", "fish"]), required=False)
+@click.option("--install", is_flag=True, help="Install completion for current shell")
+def completion(shell: Optional[str], install: bool):
+    """Generate shell completion script
+
+    Examples:
+        # Show completion script for bash
+        mao completion bash
+
+        # Install completion for current shell (auto-detect)
+        mao completion --install
+
+        # Install completion for specific shell
+        mao completion zsh --install
+    """
+    import os
+    import subprocess
+
+    # シェルを自動検出
+    if not shell:
+        current_shell = os.environ.get("SHELL", "")
+        if "bash" in current_shell:
+            shell = "bash"
+        elif "zsh" in current_shell:
+            shell = "zsh"
+        elif "fish" in current_shell:
+            shell = "fish"
+        else:
+            console.print("[red]✗ Could not detect shell. Please specify: bash, zsh, or fish[/red]")
+            return
+
+    if install:
+        # インストール手順を表示
+        console.print(f"\n[bold cyan]Installing completion for {shell}[/bold cyan]\n")
+
+        if shell == "bash":
+            completion_dir = Path.home() / ".local" / "share" / "bash-completion" / "completions"
+            completion_dir.mkdir(parents=True, exist_ok=True)
+            completion_file = completion_dir / "mao"
+
+            # 補完スクリプトを生成
+            result = subprocess.run(
+                ["_MAO_COMPLETE=bash_source mao"],
+                shell=True,
+                capture_output=True,
+                text=True,
+            )
+
+            if result.returncode == 0:
+                completion_file.write_text(result.stdout)
+                console.print(f"[green]✓ Bash completion installed to: {completion_file}[/green]")
+                console.print("\n[dim]Reload your shell or run:[/dim]")
+                console.print(f"[cyan]  source {completion_file}[/cyan]\n")
+            else:
+                console.print(f"[red]✗ Failed to generate completion script[/red]")
+                console.print(f"[dim]{result.stderr}[/dim]")
+
+        elif shell == "zsh":
+            # zsh用のインストール手順
+            console.print("[yellow]Add the following to your ~/.zshrc:[/yellow]\n")
+            console.print("[cyan]eval \"$(_MAO_COMPLETE=zsh_source mao)\"[/cyan]\n")
+            console.print("[dim]Then reload your shell:[/dim]")
+            console.print("[cyan]source ~/.zshrc[/cyan]\n")
+
+        elif shell == "fish":
+            completion_dir = Path.home() / ".config" / "fish" / "completions"
+            completion_dir.mkdir(parents=True, exist_ok=True)
+            completion_file = completion_dir / "mao.fish"
+
+            # 補完スクリプトを生成
+            result = subprocess.run(
+                ["_MAO_COMPLETE=fish_source mao"],
+                shell=True,
+                capture_output=True,
+                text=True,
+            )
+
+            if result.returncode == 0:
+                completion_file.write_text(result.stdout)
+                console.print(f"[green]✓ Fish completion installed to: {completion_file}[/green]")
+                console.print("\n[dim]Completions will be available in new shells[/dim]\n")
+            else:
+                console.print(f"[red]✗ Failed to generate completion script[/red]")
+                console.print(f"[dim]{result.stderr}[/dim]")
+
+    else:
+        # 補完スクリプトを表示
+        console.print(f"\n[bold]Completion script for {shell}:[/bold]\n")
+
+        if shell == "bash":
+            console.print("[dim]# Add to ~/.bashrc:[/dim]")
+            console.print("[cyan]eval \"$(_MAO_COMPLETE=bash_source mao)\"[/cyan]\n")
+
+        elif shell == "zsh":
+            console.print("[dim]# Add to ~/.zshrc:[/dim]")
+            console.print("[cyan]eval \"$(_MAO_COMPLETE=zsh_source mao)\"[/cyan]\n")
+
+        elif shell == "fish":
+            console.print("[dim]# Fish completions are auto-loaded from:[/dim]")
+            console.print(f"[cyan]{Path.home() / '.config/fish/completions/mao.fish'}[/cyan]\n")
+            console.print("[dim]# Generate and save:[/dim]")
+            console.print("[cyan]_MAO_COMPLETE=fish_source mao > ~/.config/fish/completions/mao.fish[/cyan]\n")
 
 
 if __name__ == "__main__":
