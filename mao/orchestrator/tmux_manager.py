@@ -307,8 +307,17 @@ Waiting for agents to start...
         except subprocess.CalledProcessError:
             pass
 
-    def assign_agent_to_pane(self, role: str, agent_id: str, log_file: Path) -> Optional[str]:
-        """グリッドレイアウトでエージェントをペインに割り当て"""
+    def assign_agent_to_pane(self, role: str, agent_id: str, work_dir: Path) -> Optional[str]:
+        """グリッドレイアウトでエージェントをペインに割り当て
+
+        Args:
+            role: エージェントのロール（manager, worker-1, etc.）
+            agent_id: エージェントID
+            work_dir: claude-codeの作業ディレクトリ
+
+        Returns:
+            割り当てられたpane_id、失敗時はNone
+        """
         if not self.use_grid_layout:
             return None
 
@@ -318,15 +327,168 @@ Waiting for agents to start...
 
         pane_id = self.grid_panes[role]
 
-        # ペインをクリア（ログファイルのtailが始まるまで空白）
+        # ペインをクリア
         self._send_to_pane(pane_id, "clear")
 
-        # ログファイルをtail（シェルインジェクション対策）
-        safe_log_file = shlex.quote(str(log_file))
+        # 作業ディレクトリに移動
+        safe_work_dir = shlex.quote(str(work_dir))
+        self._send_to_pane(pane_id, f"cd {safe_work_dir}")
+
+        # 準備完了メッセージを表示
         self._send_to_pane(
             pane_id,
-            f"tail -f {safe_log_file} 2>/dev/null || echo 'Waiting for log file...'",
+            f"echo '🤖 Agent {role} ready. Waiting for tasks...'"
         )
 
         self.panes[agent_id] = pane_id
         return pane_id
+
+    def execute_claude_code_in_pane(
+        self,
+        pane_id: str,
+        prompt: str,
+        model: str = "sonnet",
+        work_dir: Optional[Path] = None,
+        allow_unsafe: bool = False,
+    ) -> bool:
+        """tmuxペイン内でclaude-codeを実行
+
+        Args:
+            pane_id: 実行するペインID
+            prompt: claude-codeに渡すプロンプト
+            model: モデル名（sonnet, opus, haiku）
+            work_dir: 作業ディレクトリ
+            allow_unsafe: --dangerously-skip-permissions を使用するか
+
+        Returns:
+            コマンド送信成功したかどうか
+        """
+        try:
+            # 一時ファイルにプロンプトを書き込む
+            if work_dir:
+                prompt_file = work_dir / f".mao_prompt_{pane_id.replace(':', '_')}.txt"
+            else:
+                prompt_file = Path(f"/tmp/.mao_prompt_{pane_id.replace(':', '_')}.txt")
+
+            prompt_file.write_text(prompt, encoding="utf-8")
+
+            # claude-codeコマンドを構築
+            safe_prompt_file = shlex.quote(str(prompt_file))
+            cmd_parts = [
+                "cat", safe_prompt_file, "|",
+                "claude-code", "--print",
+                "--model", model,
+            ]
+
+            if allow_unsafe:
+                cmd_parts.append("--dangerously-skip-permissions")
+
+            if work_dir:
+                safe_work_dir = shlex.quote(str(work_dir))
+                cmd_parts.extend(["--add-dir", safe_work_dir])
+
+            command = " ".join(cmd_parts)
+
+            # tmuxペイン内でコマンドを実行
+            # 重要: send-keysは2回に分けないとEnterが効かない（Zenn記事の知見）
+            self._send_to_pane(pane_id, command)
+
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Failed to execute claude-code in pane: {e}")
+            return False
+
+    def execute_interactive_claude_code_in_pane(
+        self,
+        pane_id: str,
+        model: str = "sonnet",
+        work_dir: Optional[Path] = None,
+        allow_unsafe: bool = False,
+    ) -> bool:
+        """tmuxペイン内でclaude-codeをインタラクティブモードで起動
+
+        Args:
+            pane_id: 実行するペインID
+            model: モデル名（sonnet, opus, haiku）
+            work_dir: 作業ディレクトリ
+            allow_unsafe: --dangerously-skip-permissions を使用するか
+
+        Returns:
+            コマンド送信成功したかどうか
+        """
+        try:
+            # claude-codeコマンドを構築（--printなし = インタラクティブ）
+            cmd_parts = [
+                "claude-code",
+                "--model", model,
+            ]
+
+            if allow_unsafe:
+                cmd_parts.append("--dangerously-skip-permissions")
+
+            if work_dir:
+                safe_work_dir = shlex.quote(str(work_dir))
+                cmd_parts.extend(["--add-dir", safe_work_dir])
+
+            command = " ".join(cmd_parts)
+
+            # tmuxペイン内でコマンドを実行
+            self._send_to_pane(pane_id, command)
+
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Failed to start interactive claude-code: {e}")
+            return False
+
+    def start_worker_loop_in_pane(
+        self,
+        pane_id: str,
+        role: str,
+        project_path: Path,
+        model: str = "sonnet",
+        poll_interval: float = 2.0,
+        allow_unsafe: bool = False,
+    ) -> bool:
+        """tmuxペイン内でワーカーループを起動
+
+        Args:
+            pane_id: 実行するペインID
+            role: ワーカーロール（worker-1, worker-2, etc.）
+            project_path: プロジェクトルートパス
+            model: モデル名
+            poll_interval: ポーリング間隔（秒）
+            allow_unsafe: --dangerously-skip-permissions を使用するか
+
+        Returns:
+            コマンド送信成功したかどうか
+        """
+        try:
+            # worker_loop.pyのパス
+            worker_loop_script = Path(__file__).parent / "worker_loop.py"
+
+            # コマンドを構築
+            cmd_parts = [
+                "python3",
+                shlex.quote(str(worker_loop_script)),
+                "--role", role,
+                "--project-path", shlex.quote(str(project_path)),
+                "--model", model,
+                "--poll-interval", str(poll_interval),
+            ]
+
+            if allow_unsafe:
+                cmd_parts.append("--allow-unsafe")
+
+            command = " ".join(cmd_parts)
+
+            # tmuxペイン内でコマンドを実行
+            self._send_to_pane(pane_id, command)
+
+            self.logger.info(f"Started worker loop for {role} in pane {pane_id}")
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Failed to start worker loop: {e}")
+            return False

@@ -1063,36 +1063,42 @@ def improve_feedback(feedback_id: str, project_dir: str, model: str, no_issue: b
         except Exception as e:
             console.print(f"[bold yellow]⚠ Failed to create issue: {e}[/bold yellow]")
 
+    # WorktreeManager を初期化
+    from mao.orchestrator.worktree_manager import WorktreeManager
+    worktree_manager = WorktreeManager(project_path=project_path)
+
     # ステータスを in_progress に更新
     manager.update_status(feedback_id, "in_progress")
 
     # ブランチ名を生成
-    branch_name = f"feedback/{fb.id[-12:]}-{fb.title[:30].replace(' ', '-').lower()}"
+    safe_title = ''.join(c if c.isalnum() or c in '-_' else '-' for c in fb.title[:30])
+    if issue_number:
+        branch_name = f"feedback/{issue_number}_{fb.id[-8:]}-{safe_title}"
+    else:
+        branch_name = f"feedback/{fb.id[-8:]}-{safe_title}"
 
-    # ブランチを作成
-    console.print(f"\n[bold]Creating branch: {branch_name}[/bold]")
-    try:
-        subprocess.run(
-            ["git", "checkout", "-b", branch_name],
-            cwd=project_path,
-            check=True,
-            timeout=10,
-        )
-        console.print("[bold green]✓ Branch created[/bold green]")
-    except subprocess.CalledProcessError as e:
-        console.print(f"[bold yellow]⚠ Branch may already exist, switching to it[/bold yellow]")
-        try:
-            subprocess.run(["git", "checkout", branch_name], cwd=project_path, check=True, timeout=10)
-        except Exception:
-            console.print(f"[bold red]✗ Failed to checkout branch[/bold red]")
-            return
+    # Feedback 用の worktree を作成
+    console.print(f"\n[bold]Creating feedback worktree: {branch_name}[/bold]")
+    feedback_worktree = worktree_manager.create_feedback_worktree(
+        feedback_id=fb.id[-8:],
+        branch_name=branch_name
+    )
+
+    if not feedback_worktree:
+        console.print("[bold red]✗ Failed to create feedback worktree[/bold red]")
+        manager.update_status(feedback_id, "pending")
+        return
+
+    console.print(f"[bold green]✓ Worktree created: {feedback_worktree}[/bold green]")
 
     # プロジェクト設定を読み込み
     try:
-        loader = ProjectLoader(project_path)
+        loader = ProjectLoader(feedback_worktree)  # worktree パスで読み込み
         config = loader.load()
     except Exception as e:
         console.print(f"[bold red]✗ Failed to load config: {e}[/bold red]")
+        worktree_manager.remove_worktree(feedback_worktree)
+        manager.update_status(feedback_id, "pending")
         return
 
     # MAO を起動してフィードバックに取り組む
@@ -1117,6 +1123,9 @@ def improve_feedback(feedback_id: str, project_dir: str, model: str, no_issue: b
 このフィードバックに基づいて、MAO プロジェクトを改善してください。
 必要なファイルの変更、テストの追加、ドキュメントの更新などを行ってください。
 
+⚠️ 重要: 各ワーカーは独自の git worktree で作業します。
+ワーカー用 worktree は自動的に作成されます。
+
 完了したら、変更内容を git commit してください。
 コミットメッセージには issue 番号（#{issue_number if issue_number else "N/A"}）を含めてください。"""
 
@@ -1128,40 +1137,36 @@ def improve_feedback(feedback_id: str, project_dir: str, model: str, no_issue: b
     }
     model_id = model_map.get(model, "claude-sonnet-4-20250514")
 
-    # InteractiveDashboard を起動
+    # InteractiveDashboard を起動（feedback worktree で）
     app = InteractiveDashboard(
-        project_path=project_path,
+        project_path=feedback_worktree,  # worktree パスで起動
         config=config,
         use_redis=False,
         initial_prompt=prompt,
         initial_model=model_id,
+        feedback_branch=branch_name,  # フィードバックブランチ名を渡す
+        worktree_manager=worktree_manager,  # WorktreeManager を渡す
     )
 
+    success = False
     try:
         app.run()
+        success = True
 
         # 完了後の処理
         console.print("\n[bold]Work completed![/bold]")
 
-        # PR を作成するか確認
-        if not no_pr and is_github_repo and click.confirm("Create GitHub PR?"):
-            console.print("\n[bold]Creating Pull Request...[/bold]")
+        # 変更をプッシュ
+        console.print("\n[bold]Pushing changes...[/bold]")
+        if worktree_manager.push_branch(feedback_worktree, branch_name):
+            console.print("[bold green]✓ Changes pushed[/bold green]")
 
-            # 変更をプッシュ
-            try:
-                subprocess.run(
-                    ["git", "push", "-u", "origin", branch_name],
-                    cwd=project_path,
-                    check=True,
-                    timeout=60,
-                )
-                console.print("[bold green]✓ Changes pushed[/bold green]")
-            except subprocess.CalledProcessError as e:
-                console.print(f"[bold red]✗ Failed to push: {e}[/bold red]")
-                return
+            # PR を自動作成（no_pr でない場合）
+            if not no_pr and is_github_repo:
+                console.print("\n[bold]Creating Pull Request...[/bold]")
 
-            # PR の本文を作成
-            pr_body = f"""## Summary
+                # PR の本文を作成
+                pr_body = f"""## Summary
 This PR addresses feedback: {fb.title}
 
 ## Feedback Details
@@ -1170,10 +1175,10 @@ This PR addresses feedback: {fb.title}
 - **Feedback ID**: {fb.id}
 """
 
-            if issue_number:
-                pr_body += f"\nCloses #{issue_number}\n"
+                if issue_number:
+                    pr_body += f"\nCloses #{issue_number}\n"
 
-            pr_body += f"""
+                pr_body += f"""
 ## Description
 {fb.description}
 
@@ -1189,23 +1194,14 @@ This PR addresses feedback: {fb.title}
 *This PR was created automatically by MAO feedback improvement workflow.*
 """
 
-            # PR を作成
-            try:
-                result = subprocess.run(
-                    [
-                        "gh", "pr", "create",
-                        "--title", f"{fb.category}: {fb.title}",
-                        "--body", pr_body,
-                        "--label", "mao-feedback",
-                    ],
-                    cwd=project_path,
-                    capture_output=True,
-                    text=True,
-                    timeout=30,
+                pr_url = worktree_manager.create_pr(
+                    worktree_path=feedback_worktree,
+                    title=f"{fb.category}: {fb.title}",
+                    body=pr_body,
+                    base="main"
                 )
 
-                if result.returncode == 0:
-                    pr_url = result.stdout.strip()
+                if pr_url:
                     console.print(f"[bold green]✓ PR created![/bold green]")
                     console.print(f"[cyan]{pr_url}[/cyan]")
 
@@ -1213,16 +1209,22 @@ This PR addresses feedback: {fb.title}
                     manager.update_status(feedback_id, "completed")
                     console.print("[bold green]✓ Feedback marked as completed[/bold green]")
                 else:
-                    console.print(f"[bold yellow]⚠ Failed to create PR: {result.stderr}[/bold yellow]")
-            except Exception as e:
-                console.print(f"[bold red]✗ Failed to create PR: {e}[/bold red]")
+                    console.print(f"[bold yellow]⚠ Failed to create PR[/bold yellow]")
+        else:
+            console.print(f"[bold yellow]⚠ Failed to push changes[/bold yellow]")
 
-        elif click.confirm("Mark this feedback as completed?"):
-            manager.update_status(feedback_id, "completed")
-            console.print("[bold green]✓ Feedback marked as completed[/bold green]")
-
+    except KeyboardInterrupt:
+        console.print("\n[bold yellow]⚠ Interrupted by user[/bold yellow]")
     except Exception as e:
         console.print(f"[bold red]✗ Error: {e}[/bold red]")
+    finally:
+        # Worktree をクリーンアップ
+        console.print("\n[bold]Cleaning up worktrees...[/bold]")
+        cleanup_count = worktree_manager.cleanup_worktrees()
+        console.print(f"[bold green]✓ Cleaned up {cleanup_count} worktrees[/bold green]")
+
+        if not success:
+            manager.update_status(feedback_id, "pending")
 
 
 @feedback.command("show")

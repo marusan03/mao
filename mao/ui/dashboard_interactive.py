@@ -230,6 +230,8 @@ class InteractiveDashboard(App):
         initial_prompt: Optional[str] = None,
         initial_role: str = "general",
         initial_model: str = "claude-sonnet-4-20250514",
+        feedback_branch: Optional[str] = None,
+        worktree_manager: Optional[Any] = None,
     ):
         super().__init__()
         self.project_path = project_path
@@ -240,6 +242,8 @@ class InteractiveDashboard(App):
         self.initial_prompt = initial_prompt
         self.initial_role = initial_role
         self.initial_model = initial_model
+        self.feedback_branch = feedback_branch
+        self.worktree_manager = worktree_manager
 
         # ウィジェット参照
         self.header_widget: Optional[HeaderWidget] = None
@@ -696,29 +700,71 @@ class InteractiveDashboard(App):
                     role=worker_role,
                 )
 
+            # Feedback モードの場合、ワーカー用 worktree を作成
+            worker_worktree = None
+            worker_branch = None
+            if self.feedback_branch and self.worktree_manager:
+                worker_branch = f"{self.feedback_branch}-{agent_id}"
+                worker_worktree = self.worktree_manager.create_worker_worktree(
+                    parent_branch=self.feedback_branch,
+                    worker_id=agent_id
+                )
+
+                if worker_worktree:
+                    if self.log_viewer_widget:
+                        self.log_viewer_widget.add_log(
+                            f"📂 Created worktree for {agent_id}: {worker_worktree}",
+                            level="INFO",
+                            agent_id="manager",
+                        )
+                else:
+                    if self.log_viewer_widget:
+                        self.log_viewer_widget.add_log(
+                            f"⚠️ Failed to create worktree for {agent_id}, using main worktree",
+                            level="WARN",
+                            agent_id="manager",
+                        )
+
             # tmuxペインに割り当てて実行
             if self.tmux_manager:
+                # ワーカー作業ディレクトリ（worktree がある場合はそちらを使用）
+                work_dir = worker_worktree if worker_worktree else self.work_dir
+
                 # ペインに割り当て
                 pane_id = self.tmux_manager.assign_agent_to_pane(
                     role=pane_role,
                     agent_id=agent_id,
-                    work_dir=self.work_dir
+                    work_dir=work_dir
                 )
 
                 if pane_id:
+                    # タスク説明に worktree 情報を追加
+                    enhanced_prompt = task_description
+                    if worker_worktree:
+                        enhanced_prompt = f"""⚠️ あなたは独自の git worktree で作業しています。
+Worktree: {worker_worktree}
+Branch: {worker_branch}
+
+完了したら変更を commit してください。
+マージは CTO が確認後に行います。
+
+{task_description}"""
+
                     # tmuxペイン内でclaude-codeを実行
                     self.tmux_manager.execute_claude_code_in_pane(
                         pane_id=pane_id,
-                        prompt=task_description,
+                        prompt=enhanced_prompt,
                         model=model,
-                        work_dir=self.work_dir,
+                        work_dir=work_dir,
                         allow_unsafe=self.config.security.allow_unsafe_operations
                     )
 
                     self.agents[agent_id] = {
                         "role": worker_role,
                         "pane_id": pane_id,
-                        "task": task_description
+                        "task": task_description,
+                        "worktree": worker_worktree,
+                        "branch": worker_branch,
                     }
 
                     if self.log_viewer_widget:
@@ -881,12 +927,39 @@ class InteractiveDashboard(App):
                     history_text += f"{role_name}: {msg['content']}\n\n"
                 history_text += "---\n\n"
 
+            # Worktree ワークフローの説明を追加（Feedbackモードの場合）
+            worktree_instructions = ""
+            if self.feedback_branch and self.worktree_manager:
+                worktree_instructions = f"""
+---
+⚠️ **Git Worktree ワークフロー有効**
+
+現在、Feedbackブランチ `{self.feedback_branch}` で作業しています。
+
+**ワーカーの作業フロー:**
+1. 各ワーカーは独自の git worktree と branch で作業します
+2. Worktree は自動的に作成されます（例: `{self.feedback_branch}-worker-1`）
+3. ワーカーは自分のブランチで変更を commit します
+4. **マージプロセス:**
+   - ワーカーが作業を完了したら、CTOに報告してください
+   - CTO はワーカーのブランチを確認し、問題なければ merge を承認します
+   - ワーカーのブランチは `{self.feedback_branch}` にマージされます
+
+**CTOの責任:**
+- ワーカーの作業進捗を監視
+- 完了したワーカーのコードをレビュー
+- マージの承認/却下を判断
+- すべてのワーカーが完了したら、全体の統合を確認
+---
+"""
+
             # Claude Code経由でCTOに送信（スキルベース）
             result = await self.manager_executor.execute_agent(
                 prompt=f"""あなたはCTO（Chief Technology Officer）です。
 システム全体の技術責任を持ち、ワーカーの作業を監視・管理します。
 {history_text}
 現在のユーザーからの依頼: {message}
+{worktree_instructions}
 
 上記の会話履歴を踏まえて、以下の手順で作業してください：
 

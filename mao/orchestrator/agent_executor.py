@@ -3,7 +3,7 @@ Agent execution engine using Claude API
 """
 import asyncio
 from pathlib import Path
-from typing import Optional, Dict, Any, AsyncIterator
+from typing import Optional, Dict, Any, AsyncIterator, List, Callable
 import os
 import subprocess
 
@@ -96,6 +96,8 @@ class AgentExecutor:
         max_tokens: int = 4096,
         temperature: float = 1.0,
         system: Optional[str] = None,
+        tools: Optional[List[Dict[str, Any]]] = None,
+        tool_choice: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
         エージェントを実行（ストリーミングなし）
@@ -129,20 +131,39 @@ class AgentExecutor:
             logger.api_request(model, max_tokens)
 
         try:
+            # API呼び出しのパラメータを構築
+            api_params = {
+                "model": model,
+                "max_tokens": max_tokens,
+                "temperature": temperature,
+                "system": system if system else "",
+                "messages": [{"role": "user", "content": prompt}],
+            }
+
+            # toolsがある場合は追加
+            if tools:
+                api_params["tools"] = tools
+
+            # tool_choiceがある場合は追加
+            if tool_choice:
+                api_params["tool_choice"] = tool_choice
+
             # API呼び出し
-            message = await self.client.messages.create(
-                model=model,
-                max_tokens=max_tokens,
-                temperature=temperature,
-                system=system if system else "",
-                messages=[{"role": "user", "content": prompt}],
-            )
+            message = await self.client.messages.create(**api_params)
 
             # 結果を抽出
             response_text = ""
+            tool_uses = []
+
             for block in message.content:
                 if block.type == "text":
                     response_text += block.text
+                elif block.type == "tool_use":
+                    tool_uses.append({
+                        "id": block.id,
+                        "name": block.name,
+                        "input": block.input,
+                    })
 
             # ログ記録
             if logger:
@@ -152,9 +173,14 @@ class AgentExecutor:
                 )
                 logger.result(f"応答を受信しました（{message.usage.output_tokens} tokens）")
 
+                if tool_uses:
+                    for tool_use in tool_uses:
+                        logger.action(tool_use["name"], f"Tool called: {tool_use['input']}")
+
             return {
                 "success": True,
                 "response": response_text,
+                "tool_uses": tool_uses,
                 "model": model,
                 "usage": {
                     "input_tokens": message.usage.input_tokens,

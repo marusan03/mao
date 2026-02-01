@@ -216,3 +216,188 @@ class WorktreeManager:
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
             self.logger.error(f"Failed to get worktree info: {e}")
             return {}
+
+    def create_feedback_worktree(
+        self, feedback_id: str, branch_name: str
+    ) -> Optional[Path]:
+        """Feedbackタスク用のworktreeを作成
+
+        Args:
+            feedback_id: フィードバックID
+            branch_name: ブランチ名（例: feedback/123_abc-description）
+
+        Returns:
+            作成されたworktreeのパス、失敗時はNone
+        """
+        if not self.is_git_repository():
+            return None
+
+        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        worktree_name = f"feedback-{feedback_id}-{timestamp}"
+        worktree_path = self.worktrees_dir / worktree_name
+
+        try:
+            # ブランチを作成してworktreeを追加
+            result = subprocess.run(
+                ["git", "worktree", "add", "-b", branch_name, str(worktree_path)],
+                cwd=self.project_path,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+
+            if result.returncode == 0:
+                self.logger.info(f"Created feedback worktree: {worktree_path}")
+                return worktree_path
+            else:
+                self.logger.error(f"Failed to create feedback worktree: {result.stderr}")
+                return None
+
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+            self.logger.error(f"Exception creating feedback worktree: {e}")
+            return None
+
+    def create_worker_worktree(
+        self, parent_branch: str, worker_id: str
+    ) -> Optional[Path]:
+        """ワーカー用のworktreeを作成
+
+        Args:
+            parent_branch: 親ブランチ名（feedbackブランチ）
+            worker_id: ワーカーID
+
+        Returns:
+            作成されたworktreeのパス、失敗時はNone
+        """
+        if not self.is_git_repository():
+            return None
+
+        worker_branch = f"{parent_branch}-{worker_id}"
+        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        worktree_name = f"worker-{worker_id}-{timestamp}"
+        worktree_path = self.worktrees_dir / worktree_name
+
+        try:
+            # 親ブランチから新規ブランチを作成してworktreeを追加
+            result = subprocess.run(
+                ["git", "worktree", "add", "-b", worker_branch, str(worktree_path), parent_branch],
+                cwd=self.project_path,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+
+            if result.returncode == 0:
+                self.logger.info(f"Created worker worktree: {worktree_path}")
+                return worktree_path
+            else:
+                self.logger.error(f"Failed to create worker worktree: {result.stderr}")
+                return None
+
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+            self.logger.error(f"Exception creating worker worktree: {e}")
+            return None
+
+    def merge_branch(
+        self, target_worktree: Path, source_branch: str, commit_message: str
+    ) -> bool:
+        """ブランチをマージ
+
+        Args:
+            target_worktree: マージ先worktreeパス
+            source_branch: マージ元ブランチ名
+            commit_message: マージコミットメッセージ
+
+        Returns:
+            成功時True
+        """
+        try:
+            result = subprocess.run(
+                ["git", "merge", "--no-ff", "-m", commit_message, source_branch],
+                cwd=target_worktree,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+
+            if result.returncode == 0:
+                self.logger.info(f"Merged {source_branch} into {target_worktree.name}")
+                return True
+            else:
+                self.logger.error(f"Merge failed: {result.stderr}")
+                return False
+
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+            self.logger.error(f"Exception during merge: {e}")
+            return False
+
+    def push_branch(self, worktree_path: Path, branch_name: str) -> bool:
+        """ブランチをリモートにプッシュ
+
+        Args:
+            worktree_path: worktreeパス
+            branch_name: ブランチ名
+
+        Returns:
+            成功時True
+        """
+        try:
+            result = subprocess.run(
+                ["git", "push", "-u", "origin", branch_name],
+                cwd=worktree_path,
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+
+            return result.returncode == 0
+
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+            self.logger.error(f"Failed to push branch: {e}")
+            return False
+
+    def create_pr(
+        self, worktree_path: Path, title: str, body: str, base: str = "main"
+    ) -> Optional[str]:
+        """GitHub PRを作成
+
+        Args:
+            worktree_path: worktreeパス
+            title: PRタイトル
+            body: PR説明
+            base: ベースブランチ（デフォルト: main）
+
+        Returns:
+            PR URL、失敗時はNone
+        """
+        try:
+            # gh コマンドでPR作成
+            result = subprocess.run(
+                [
+                    "gh",
+                    "pr",
+                    "create",
+                    "--title",
+                    title,
+                    "--body",
+                    body,
+                    "--base",
+                    base,
+                ],
+                cwd=worktree_path,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+
+            if result.returncode == 0:
+                pr_url = result.stdout.strip().split('\n')[-1]
+                self.logger.info(f"Created PR: {pr_url}")
+                return pr_url
+            else:
+                self.logger.error(f"Failed to create PR: {result.stderr}")
+                return None
+
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+            self.logger.error(f"Exception creating PR: {e}")
+            return None

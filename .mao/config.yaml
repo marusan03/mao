@@ -1,0 +1,26 @@
+# Multi-Agent Orchestrator Configuration
+
+project_name: my-project
+default_language: python
+
+# Agent settings
+agents:
+  default_model: sonnet  # sonnet, opus, haiku
+  enable_parallel: true
+  max_workers: 5
+
+# State management
+state:
+  backend: sqlite  # sqlite or redis
+
+# Logging
+logging:
+  level: INFO
+  file: .mao/orchestrator.log
+
+# Security settings
+security:
+  # WARNING: Setting allow_unsafe_operations to true gives agents unrestricted file system access
+  allow_unsafe_operations: false  # Use --dangerously-skip-permissions flag
+  allow_file_write: true
+  allow_command_execution: true
