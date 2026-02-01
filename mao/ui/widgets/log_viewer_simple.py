@@ -20,6 +20,13 @@ class SimpleLogViewer(Static, can_focus=True):
         "RESULT": "bright_green",
     }
 
+    BINDINGS = [
+        ("up", "scroll_up", "Scroll Up"),
+        ("down", "scroll_down", "Scroll Down"),
+        ("pageup", "page_up", "Page Up"),
+        ("pagedown", "page_down", "Page Down"),
+    ]
+
     def __init__(self, *args, max_lines: int = 100, **kwargs):
         super().__init__(*args, **kwargs)
         self.logs: Deque[str] = deque(maxlen=max_lines)

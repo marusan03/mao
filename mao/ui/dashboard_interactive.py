@@ -1,5 +1,5 @@
 """
-Interactive Dashboard - マネージャーと対話できるダッシュボード
+Interactive Dashboard - CTOと対話できるダッシュボード
 """
 from pathlib import Path
 from typing import Optional, Dict, Any
@@ -9,7 +9,7 @@ import subprocess
 from datetime import datetime
 
 from textual.app import App, ComposeResult
-from textual.containers import Container, Vertical, Horizontal
+from textual.containers import Container, Vertical, Horizontal, VerticalScroll
 from textual.widgets import Header, Footer
 from textual.binding import Binding
 
@@ -19,6 +19,9 @@ from mao.ui.widgets import (
     SimpleLogViewer,
     ManagerChatPanel,
     MetricsWidget,
+    ApprovalQueueWidget,
+    ApprovalRequest,
+    RiskLevel,
 )
 from mao.orchestrator.project_loader import ProjectConfig
 from mao.orchestrator.tmux_manager import TmuxManager
@@ -30,7 +33,7 @@ from mao.orchestrator.feedback_manager import FeedbackManager
 
 
 class InteractiveDashboard(App):
-    """マネージャーと対話できるダッシュボード"""
+    """CTOと対話できるダッシュボード"""
 
     CSS = """
     Screen {
@@ -45,54 +48,160 @@ class InteractiveDashboard(App):
     #manager_chat_panel {
         width: 50%;
         height: 100%;
-        border: solid yellow;
+        border: solid $warning 60%;
         padding: 1;
         layout: vertical;
+        overflow-y: auto;
+    }
+
+    #manager_chat_panel:focus-within {
+        border: heavy yellow;
+        background: $surface-darken-1;
     }
 
     #right_panel {
         width: 50%;
-        layout: vertical;
+    }
+
+    #right_panel:focus-within {
+        border: heavy cyan;
+    }
+
+    #header_container {
+        height: 1fr;
+        margin-bottom: 1;
+        scrollbar-gutter: stable;
     }
 
     #header_widget {
         height: auto;
-        border: solid cyan;
+        border: solid cyan 60%;
         padding: 1;
+    }
+
+    #header_widget:focus-within {
+        border: heavy cyan;
+        background: $surface-darken-1;
+    }
+
+    #metrics_container {
+        height: 1fr;
         margin-bottom: 1;
+        scrollbar-gutter: stable;
     }
 
     #metrics_widget {
         height: auto;
-        border: solid magenta;
+        border: solid magenta 60%;
+        padding: 1;
+    }
+
+    #metrics_widget:focus-within {
+        border: heavy magenta;
+        background: $surface-darken-1;
+    }
+
+    #approval_queue_container {
+        height: 1fr;
+        margin-bottom: 1;
+        scrollbar-gutter: stable;
+    }
+
+    #approval_queue {
+        border: solid red 60%;
+        padding: 1;
+        height: auto;
+    }
+
+    #approval_queue:focus {
+        border: heavy red;
+        background: $surface-darken-1;
+    }
+
+    .approval-request-container {
+        border: solid yellow;
         padding: 1;
         margin-bottom: 1;
+    }
+
+    .approval-request-container:focus-within {
+        border: heavy yellow;
+        background: $surface-darken-1;
+    }
+
+    .approval-header {
+        layout: horizontal;
+        height: auto;
+    }
+
+    .approval-title {
+        width: 1fr;
+    }
+
+    .risk-badge {
+        width: auto;
+        padding: 0 1;
+    }
+
+    .approval-buttons {
+        layout: horizontal;
+        height: auto;
+        margin-top: 1;
+    }
+
+    .approve-button, .reject-button, .details-button {
+        margin-right: 1;
+    }
+
+    #agent_list_container {
+        height: 1fr;
+        margin-bottom: 1;
+        scrollbar-gutter: stable;
     }
 
     #agent_list {
-        height: 30%;
-        border: solid green;
+        border: solid green 60%;
         padding: 1;
-        margin-bottom: 1;
-        overflow-y: auto;
+        height: auto;
+    }
+
+    #agent_list:focus {
+        border: heavy green;
+        background: $surface-darken-1;
+    }
+
+    #log_viewer_container {
+        height: 1fr;
+        scrollbar-gutter: stable;
     }
 
     #log_viewer {
-        height: 1fr;
-        border: solid blue;
+        border: solid blue 60%;
         padding: 1;
-        overflow-y: auto;
+        height: auto;
+    }
+
+    #log_viewer:focus {
+        border: heavy blue;
+        background: $surface-darken-1;
+    }
+
+    #manager_chat_scroll {
+        height: 1fr;
+        scrollbar-gutter: stable;
     }
 
     ManagerChatWidget {
-        height: 1fr;
-        overflow-y: scroll;
-        scrollbar-gutter: stable;
+        padding: 1;
     }
 
     ManagerChatInput {
         height: auto;
         margin-top: 1;
+    }
+
+    ManagerChatInput:focus {
+        border: heavy yellow;
     }
 
     Footer {
@@ -103,9 +212,12 @@ class InteractiveDashboard(App):
     BINDINGS = [
         Binding("ctrl+q", "quit", "Quit"),
         Binding("ctrl+r", "refresh", "Refresh"),
-        Binding("ctrl+up", "select_prev", "↑ Agent"),
-        Binding("ctrl+down", "select_next", "↓ Agent"),
-        Binding("ctrl+m", "focus_manager", "Manager Chat"),
+        Binding("tab", "focus_next", "Next Panel"),
+        Binding("shift+tab", "focus_previous", "Prev Panel"),
+        Binding("ctrl+1", "focus_manager", "CTO"),
+        Binding("ctrl+0", "focus_approvals", "Approvals"),
+        Binding("ctrl+2", "focus_agents", "Agents"),
+        Binding("ctrl+3", "focus_logs", "Logs"),
     ]
 
     def __init__(
@@ -134,9 +246,10 @@ class InteractiveDashboard(App):
         self.metrics_widget: Optional[MetricsWidget] = None
         self.agent_list_widget: Optional[AgentListWidget] = None
         self.log_viewer_widget: Optional[SimpleLogViewer] = None
-        self.manager_chat_panel: Optional[ManagerChatPanel] = None
+        self.manager_chat_panel: Optional[ManagerChatPanel] = None  # CTOチャット
+        self.approval_queue_widget: Optional[ApprovalQueueWidget] = None
 
-        # マネージャーエグゼキュータ（セキュリティ設定を適用）
+        # CTOエグゼキュータ（Claude Code使用、スキルベース）
         self.manager_executor = ClaudeCodeExecutor(
             allow_unsafe_operations=config.security.allow_unsafe_operations
         )
@@ -265,27 +378,43 @@ class InteractiveDashboard(App):
 
         # メインコンテナ（左右分割）
         with Container(id="main_container"):
-            # 左パネル: マネージャーチャット（全体）
+            # 左パネル: CTOチャット（全体）
             self.manager_chat_panel = ManagerChatPanel(id="manager_chat_panel")
             yield self.manager_chat_panel
 
-            # 右パネル: タスク情報 + メトリクス + エージェント一覧 + ログ
+            # 右パネル: タスク情報 + メトリクス + 承認キュー + エージェント一覧 + ログ
             with Vertical(id="right_panel"):
-                # ヘッダー（タスク情報）
-                self.header_widget = HeaderWidget(id="header_widget")
-                yield self.header_widget
+                # ヘッダー（タスク情報）（個別にスクロール可能）
+                with VerticalScroll(id="header_container"):
+                    self.header_widget = HeaderWidget(id="header_widget")
+                    yield self.header_widget
 
-                # メトリクス（進捗、トークン、コスト）
-                self.metrics_widget = MetricsWidget(id="metrics_widget")
-                yield self.metrics_widget
+                # メトリクス（進捗、トークン、コスト）（個別にスクロール可能）
+                with VerticalScroll(id="metrics_container"):
+                    self.metrics_widget = MetricsWidget(id="metrics_widget")
+                    yield self.metrics_widget
 
-                # エージェント一覧
-                self.agent_list_widget = AgentListWidget(id="agent_list")
-                yield self.agent_list_widget
+                # 承認キュー（個別にスクロール可能）
+                with VerticalScroll(id="approval_queue_container"):
+                    self.approval_queue_widget = ApprovalQueueWidget(
+                        id="approval_queue",
+                        on_approve=self.on_approve_request,
+                        on_reject=self.on_reject_request,
+                    )
+                    yield self.approval_queue_widget
 
-                # ログビューア
-                self.log_viewer_widget = SimpleLogViewer(id="log_viewer")
-                yield self.log_viewer_widget
+                # エージェント一覧（個別にスクロール可能）
+                with VerticalScroll(id="agent_list_container"):
+                    self.agent_list_widget = AgentListWidget(
+                        on_selection_changed=self.on_agent_selection_changed,
+                        id="agent_list"
+                    )
+                    yield self.agent_list_widget
+
+                # ログビューア（個別にスクロール可能）
+                with VerticalScroll(id="log_viewer_container"):
+                    self.log_viewer_widget = SimpleLogViewer(id="log_viewer")
+                    yield self.log_viewer_widget
 
         yield Footer()
 
@@ -296,12 +425,14 @@ class InteractiveDashboard(App):
             self.header_widget.border_title = "📋 Task Info"
         if self.metrics_widget:
             self.metrics_widget.border_title = "📊 Metrics - 統計・使用量"
+        if self.approval_queue_widget:
+            self.approval_queue_widget.border_title = "🔔 Approval Queue - 承認待ち"
         if self.agent_list_widget:
             self.agent_list_widget.border_title = "👥 Agents - エージェント一覧"
         if self.log_viewer_widget:
             self.log_viewer_widget.border_title = "📝 Logs - 実行ログ"
         if self.manager_chat_panel:
-            self.manager_chat_panel.border_title = "💬 Manager Chat - マネージャーとの対話"
+            self.manager_chat_panel.border_title = "👔 CTO Chat - CTOとの対話"
 
         # タスク情報を設定
         if self.initial_prompt and self.header_widget:
@@ -311,13 +442,13 @@ class InteractiveDashboard(App):
                 total_count=0,
             )
 
-        # マネージャーチャットのコールバック設定
+        # CTOチャットのコールバック設定
         if self.manager_chat_panel:
             self.manager_chat_panel.set_send_callback(self.on_manager_message_send)
 
             # 初期メッセージを表示
             self.manager_chat_panel.add_system_message(
-                "マネージャーに指示を送信できます。タスクの計画や質問をしてください。"
+                "CTOに指示を送信できます。タスクの分解と実行を依頼してください。"
             )
 
         # 初期ログ
@@ -330,7 +461,7 @@ class InteractiveDashboard(App):
                     f"初期タスク: {self.initial_prompt[:50]}...", level="INFO"
                 )
 
-        # 初期タスクがあればマネージャーに送信
+        # 初期タスクがあればCTOに送信
         if self.initial_prompt:
             asyncio.create_task(self.send_to_manager(self.initial_prompt))
 
@@ -346,16 +477,16 @@ class InteractiveDashboard(App):
         )
 
     def on_manager_message_send(self, message: str):
-        """ユーザーがマネージャーにメッセージを送信"""
+        """ユーザーがCTOにメッセージを送信"""
         # ユーザーメッセージをセッションに保存
         self.session_manager.add_message(role="user", content=message)
 
         if self.log_viewer_widget:
             self.log_viewer_widget.add_log(
-                f"マネージャーに送信: {message[:30]}...", level="INFO"
+                f"CTOに送信: {message[:30]}...", level="INFO"
             )
 
-        # 非同期でマネージャーに送信
+        # 非同期でCTOに送信
         asyncio.create_task(self.send_to_manager(message))
 
     async def _periodic_update(self) -> None:
@@ -482,8 +613,165 @@ class InteractiveDashboard(App):
                 agent_id=message.sender,
             )
 
+    async def _spawn_task_agent(
+        self,
+        task_description: str,
+        worker_role: str,
+        model: str = "sonnet"
+    ) -> None:
+        """Taskエージェントを起動する
+
+        Args:
+            task_description: タスクの説明
+            worker_role: ワーカーのロール
+            model: 使用するモデル
+        """
+        # エージェントIDを生成
+        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        agent_id = f"worker-{timestamp}"
+
+        if self.log_viewer_widget:
+            self.log_viewer_widget.add_log(
+                f"🚀 Starting worker: {agent_id} ({worker_role})",
+                level="INFO",
+                agent_id="manager",
+            )
+
+        # ClaudeCodeExecutorを使ってエージェントを起動
+        executor = ClaudeCodeExecutor(
+            allow_unsafe_operations=self.config.security.allow_unsafe_operations
+        )
+
+        try:
+            # エージェントの状態を登録
+            await self.state_manager.update_state(
+                agent_id=agent_id,
+                role=worker_role,
+                status=AgentStatus.THINKING,
+                current_task=task_description[:50] + "...",
+            )
+
+            # エージェント一覧に追加
+            if self.agent_list_widget:
+                self.agent_list_widget.update_agent(
+                    agent_id=agent_id,
+                    status="running",
+                    task=task_description[:50] + "...",
+                    role=worker_role,
+                )
+
+            # バックグラウンドでエージェントを実行
+            asyncio.create_task(
+                self._execute_worker_agent(
+                    executor, agent_id, task_description, worker_role, model
+                )
+            )
+
+        except Exception as e:
+            if self.log_viewer_widget:
+                self.log_viewer_widget.add_log(
+                    f"❌ Failed to spawn worker {agent_id}: {str(e)}",
+                    level="ERROR",
+                    agent_id="manager",
+                )
+
+    async def _execute_worker_agent(
+        self,
+        executor: ClaudeCodeExecutor,
+        agent_id: str,
+        task_description: str,
+        worker_role: str,
+        model: str
+    ) -> None:
+        """ワーカーエージェントを実行（バックグラウンド）
+
+        Args:
+            executor: ClaudeCodeExecutor
+            agent_id: エージェントID
+            task_description: タスクの説明
+            worker_role: ワーカーのロール
+            model: 使用するモデル
+        """
+        try:
+            # エージェントを実行
+            result = await executor.execute_agent(
+                prompt=task_description,
+                model=model,
+                work_dir=self.work_dir,
+            )
+
+            if result.get("success"):
+                # 成功
+                if self.log_viewer_widget:
+                    self.log_viewer_widget.add_log(
+                        f"✅ Worker {agent_id} completed successfully",
+                        level="INFO",
+                        agent_id=agent_id,
+                    )
+
+                # エージェントの状態を更新
+                await self.state_manager.update_state(
+                    agent_id=agent_id,
+                    role=worker_role,
+                    status=AgentStatus.IDLE,
+                    current_task="完了",
+                )
+
+                # エージェント一覧を更新
+                if self.agent_list_widget:
+                    self.agent_list_widget.update_agent(
+                        agent_id=agent_id,
+                        status="completed",
+                        task="完了",
+                        role=worker_role,
+                    )
+
+                # CTOに結果を報告
+                if self.manager_chat_panel:
+                    response = result.get("response", "")[:200]
+                    self.manager_chat_panel.add_system_message(
+                        f"✅ {agent_id} 完了\n"
+                        f"   結果: {response}..."
+                    )
+
+            else:
+                # エラー
+                error = result.get("error", "Unknown error")
+                if self.log_viewer_widget:
+                    self.log_viewer_widget.add_log(
+                        f"❌ Worker {agent_id} failed: {error}",
+                        level="ERROR",
+                        agent_id=agent_id,
+                    )
+
+                # エージェントの状態を更新
+                await self.state_manager.update_state(
+                    agent_id=agent_id,
+                    role=worker_role,
+                    status=AgentStatus.ERROR,
+                    current_task="エラー",
+                    error_message=error,
+                )
+
+                # エージェント一覧を更新
+                if self.agent_list_widget:
+                    self.agent_list_widget.update_agent(
+                        agent_id=agent_id,
+                        status="error",
+                        task=f"エラー: {error[:30]}",
+                        role=worker_role,
+                    )
+
+        except Exception as e:
+            if self.log_viewer_widget:
+                self.log_viewer_widget.add_log(
+                    f"❌ Worker {agent_id} crashed: {str(e)}",
+                    level="ERROR",
+                    agent_id=agent_id,
+                )
+
     async def send_to_manager(self, message: str):
-        """マネージャーにメッセージを送信して応答を取得"""
+        """CTOにメッセージを送信して応答を取得"""
         if not self.manager_chat_panel:
             return
 
@@ -492,7 +780,7 @@ class InteractiveDashboard(App):
         # ストリーミングメッセージを開始
         self.manager_chat_panel.chat_widget.start_streaming_message()
 
-        # マネージャーの状態を更新（実行中）
+        # CTOの状態を更新（実行中）
         await self.state_manager.update_state(
             agent_id="manager",
             role="manager",
@@ -500,40 +788,70 @@ class InteractiveDashboard(App):
             current_task=f"処理中: {message[:30]}...",
         )
 
-        # リアルタイムログコールバック
-        def on_log(log_line: str):
-            """マネージャーの実行ログを受け取る"""
-            if log_line.strip():
-                # [stderr] プレフィックスがある場合はログビューアにERRORレベルで表示
-                if log_line.startswith("[stderr]"):
-                    if self.log_viewer_widget:
-                        self.log_viewer_widget.add_log(
-                            log_line.replace("[stderr] ", ""),
-                            level="ERROR",
-                            agent_id="manager",
-                        )
-                else:
-                    # 通常のログはストリーミング表示とログビューアの両方に追加
-                    if self.manager_chat_panel:
-                        self.manager_chat_panel.chat_widget.append_streaming_chunk(log_line + "\n")
-
-                    if self.log_viewer_widget:
-                        self.log_viewer_widget.add_log(
-                            log_line,
-                            level="INFO",
-                            agent_id="manager",
-                        )
-
         try:
-            # Claude Code経由でマネージャーに送信
-            result = await self.manager_executor.execute_agent(
-                prompt=f"""あなたはマネージャーエージェントです。
-以下のタスクまたは質問について、計画を立てるか回答してください。
+            # 会話履歴を取得
+            conversation_history = []
+            if self.manager_chat_panel and self.manager_chat_panel.chat_widget:
+                conversation_history = self.manager_chat_panel.chat_widget.get_conversation_history()
 
-タスク/質問: {message}
+            # 会話履歴をフォーマット
+            history_text = ""
+            if conversation_history:
+                history_text = "\n以下は今までの会話履歴です:\n\n"
+                for msg in conversation_history:
+                    role_name = "User" if msg["role"] == "user" else "Assistant"
+                    history_text += f"{role_name}: {msg['content']}\n\n"
+                history_text += "---\n\n"
+
+            # Claude Code経由でCTOに送信（スキルベース）
+            result = await self.manager_executor.execute_agent(
+                prompt=f"""あなたはCTO（Chief Technology Officer）です。
+システム全体の技術責任を持ち、ワーカーの作業を監視・管理します。
+{history_text}
+現在のユーザーからの依頼: {message}
+
+上記の会話履歴を踏まえて、以下の手順で作業してください：
+
+1. **タスク分解**
+   依頼を実行可能なサブタスクに分解します。
+   各サブタスクは明確で、ワーカーが理解できる粒度にしてください。
+
+2. **リスク評価**
+   各サブタスクのリスクレベル（低/中/高）を評価します。
+
+3. **ロール選択とワーカーへの割り当て**
+   各タスクの性質に応じて、最適なワーカーロールを選択してください：
+
+   **ロール選択ガイド:**
+   - **general-purpose**: コード実装、ファイル編集、複雑なロジック実装
+     例: 認証機能の実装、APIエンドポイント作成、バグ修正
+
+   - **Bash**: コマンド実行、スクリプト実行、システム操作
+     例: git操作、ファイルのコピー/移動、パッケージインストール
+
+   - **Explore**: コードベース探索、ファイル検索、構造分析
+     例: 既存の実装を調査、依存関係の把握、アーキテクチャ理解
+
+   - **Plan**: 計画立案、アーキテクチャ設計、詳細なタスク分解
+     例: 実装方針の策定、技術選定、設計ドキュメント作成
+
+   **モデル選択ガイド:**
+   - **opus**: 複雑な実装、重要な判断、アーキテクチャ設計
+   - **sonnet**: 通常の実装タスク（推奨、バランス型）
+   - **haiku**: シンプルなタスク、軽微な修正、調査タスク
+
+4. **Taskツールを使ってワーカーを起動**
+   各タスクに対して、**必ずTaskツールを使ってワーカーを起動してください。**
+
+   例:
+   ```
+   Task 1: 既存コードの調査
+   - Role: Explore
+   - Model: haiku
+   → Taskツールでワーカーを起動
+   ```
 
 回答は簡潔に、具体的に行ってください。
-必要なワーカーエージェントやサブタスクがあれば提案してください。
 
 ---
 MAO へのフィードバック:
@@ -546,30 +864,20 @@ Priority: low | medium | high | critical
 Description: |
   詳細な説明
 [MAO_FEEDBACK_END]
-
-例：エージェント間の通信が遅い場合
-[MAO_FEEDBACK_START]
-Title: エージェント間通信の高速化
-Category: improvement
-Priority: high
-Description: |
-  現在の YAML ベースの通信は遅延が大きい。
-  Redis や SQLite を使った高速化を検討すべき。
-[MAO_FEEDBACK_END]
 """,
                 model=self.initial_model,
                 work_dir=self.work_dir,
-                log_callback=on_log,
             )
 
             if result.get("success"):
-                # ストリーミングメッセージを完了
-                if self.manager_chat_panel:
-                    self.manager_chat_panel.chat_widget.complete_streaming_message()
-
                 response = result.get("response", "").strip()
 
-                # マネージャーの応答をセッションに保存
+                # レスポンスをストリーミングバッファに追加
+                if self.manager_chat_panel and response:
+                    self.manager_chat_panel.chat_widget.append_streaming_chunk(response)
+                    self.manager_chat_panel.chat_widget.complete_streaming_message()
+
+                # CTOの応答をセッションに保存
                 self.session_manager.add_message(role="manager", content=response)
 
                 # フィードバックを抽出
@@ -577,12 +885,12 @@ Description: |
 
                 if self.log_viewer_widget:
                     self.log_viewer_widget.add_log(
-                        f"マネージャー応答完了",
+                        f"CTO応答完了",
                         level="INFO",
                         agent_id="manager",
                     )
 
-                # マネージャーの状態を更新（完了）
+                # CTOの状態を更新（完了）
                 await self.state_manager.update_state(
                     agent_id="manager",
                     role="manager",
@@ -599,7 +907,7 @@ Description: |
                     self.manager_chat_panel.chat_widget._streaming_buffer = ""
                     self.manager_chat_panel.add_system_message(f"エラー: {error}")
 
-                # マネージャーの状態を更新（エラー）
+                # CTOの状態を更新（エラー）
                 await self.state_manager.update_state(
                     agent_id="manager",
                     role="manager",
@@ -615,7 +923,7 @@ Description: |
                 self.manager_chat_panel.chat_widget._streaming_buffer = ""
                 self.manager_chat_panel.add_system_message(f"エラー: {str(e)}")
 
-            # マネージャーの状態を更新（エラー）
+            # CTOの状態を更新（エラー）
             await self.state_manager.update_state(
                 agent_id="manager",
                 role="manager",
@@ -668,26 +976,83 @@ Description: |
         if self.agent_list_widget:
             self.agent_list_widget.refresh_display()
 
-    def action_select_prev(self) -> None:
-        """前のエージェントを選択"""
-        if self.agent_list_widget:
-            self.agent_list_widget.select_prev()
-            selected = self.agent_list_widget.get_selected_agent()
-            if selected and self.log_viewer_widget:
-                self.log_viewer_widget.set_current_agent(selected)
-
-    def action_select_next(self) -> None:
-        """次のエージェントを選択"""
-        if self.agent_list_widget:
-            self.agent_list_widget.select_next()
-            selected = self.agent_list_widget.get_selected_agent()
-            if selected and self.log_viewer_widget:
-                self.log_viewer_widget.set_current_agent(selected)
-
     def action_focus_manager(self) -> None:
-        """マネージャーチャット入力にフォーカス"""
-        if self.manager_chat_panel and self.manager_chat_panel.input_widget:
-            self.manager_chat_panel.input_widget.focus()
+        """CTOチャットにフォーカス"""
+        if self.manager_chat_panel:
+            # スクロールコンテナを探してフォーカス
+            scroll = self.query_one("#manager_chat_scroll", VerticalScroll)
+            if scroll:
+                scroll.focus()
+
+    def action_focus_approvals(self) -> None:
+        """承認キューにフォーカス"""
+        if self.approval_queue_widget:
+            self.approval_queue_widget.focus()
+
+    def action_focus_agents(self) -> None:
+        """エージェント一覧にフォーカス"""
+        if self.agent_list_widget:
+            self.agent_list_widget.focus()
+
+    def action_focus_logs(self) -> None:
+        """ログビューアにフォーカス"""
+        if self.log_viewer_widget:
+            self.log_viewer_widget.focus()
+
+    def on_approve_request(self, request_id: str) -> None:
+        """承認リクエストを承認
+
+        Args:
+            request_id: リクエストID
+        """
+        if self.log_viewer_widget:
+            self.log_viewer_widget.add_log(
+                f"リクエスト {request_id} を承認しました",
+                level="INFO",
+            )
+
+        if self.manager_chat_panel:
+            self.manager_chat_panel.add_system_message(
+                f"✅ リクエスト {request_id} を承認しました"
+            )
+
+        # TODO: CTOに承認を通知
+        # approval_queue から削除
+        if self.approval_queue_widget:
+            self.approval_queue_widget.remove_request(request_id)
+
+    def on_reject_request(self, request_id: str) -> None:
+        """承認リクエストを却下
+
+        Args:
+            request_id: リクエストID
+        """
+        if self.log_viewer_widget:
+            self.log_viewer_widget.add_log(
+                f"リクエスト {request_id} を却下しました",
+                level="WARN",
+            )
+
+        if self.manager_chat_panel:
+            self.manager_chat_panel.add_system_message(
+                f"❌ リクエスト {request_id} を却下しました"
+            )
+
+        # TODO: CTOに却下を通知
+        # approval_queue から削除
+        if self.approval_queue_widget:
+            self.approval_queue_widget.remove_request(request_id)
+
+    def on_agent_selection_changed(self, agent_id: str, agent_info: Dict[str, Any]) -> None:
+        """エージェント選択が変更された時の処理
+
+        Args:
+            agent_id: エージェントID
+            agent_info: エージェント情報
+        """
+        # ヘッダーウィジェットに選択されたエージェントの情報を表示
+        if self.header_widget:
+            self.header_widget.update_selected_agent(agent_id, agent_info)
 
 
 # エイリアス

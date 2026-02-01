@@ -1,9 +1,9 @@
-"""Manager Chat Widget - マネージャーとの対話ウィジェット"""
+"""Manager Chat Widget - CTOとの対話ウィジェット"""
 from textual.widgets import Static, Input
-from textual.containers import Container, Vertical
+from textual.containers import Container, Vertical, VerticalScroll
 from rich.text import Text
 from collections import deque
-from typing import Deque, Callable, Optional
+from typing import Deque, Callable, Optional, List, Dict
 import datetime
 
 
@@ -26,9 +26,9 @@ class ChatMessage:
             text.append("You", style="bold cyan")
             text.append(f": {self.message}", style="white")
         elif self.sender == "manager":
-            # マネージャーメッセージ
+            # CTOメッセージ
             text.append(f"[{time_str}] ", style="dim")
-            text.append("Manager", style="bold green")
+            text.append("CTO", style="bold green")
             text.append(f": {self.message}", style="white")
         else:
             # システムメッセージ
@@ -41,6 +41,13 @@ class ChatMessage:
 
 class ManagerChatWidget(Static, can_focus=True):
     """マネージャーとのチャットウィジェット"""
+
+    BINDINGS = [
+        ("up", "scroll_up", "Scroll Up"),
+        ("down", "scroll_down", "Scroll Down"),
+        ("pageup", "page_up", "Page Up"),
+        ("pagedown", "page_down", "Page Down"),
+    ]
 
     def __init__(self, *args, max_messages: int = 50, **kwargs):
         super().__init__(*args, **kwargs)
@@ -92,10 +99,25 @@ class ManagerChatWidget(Static, can_focus=True):
             self.messages.append(self._streaming_message)
             self.refresh_display()
 
-        # ストリーミング状態を常にクリア
+        # ストリーミング状態をクリア
         self._streaming_message = None
         self._streaming_buffer = ""
         self._thinking_text = ""
+
+    def get_conversation_history(self) -> List[Dict[str, str]]:
+        """会話履歴を取得（Claude API形式）
+
+        Returns:
+            会話履歴のリスト [{"role": "user"|"assistant", "content": "..."}]
+        """
+        history = []
+        for msg in self.messages:
+            if msg.sender == "user":
+                history.append({"role": "user", "content": msg.message})
+            elif msg.sender == "manager":
+                history.append({"role": "assistant", "content": msg.message})
+            # システムメッセージは履歴に含めない
+        return history
 
     def set_thinking(self, text: str):
         """途中経過（thinking）を設定"""
@@ -114,10 +136,10 @@ class ManagerChatWidget(Static, can_focus=True):
     def refresh_display(self):
         """表示を更新"""
         content = Text()
-        content.append("[Manager Chat]\n", style="bold cyan")
+        content.append("[CTO Chat]\n", style="bold cyan")
 
         if not self.messages and not self._streaming_message and not self._thinking_text:
-            content.append("マネージャーと対話できます。下のフィールドに入力してください。\n", style="dim")
+            content.append("CTOと対話できます。下のフィールドに入力してください。\n", style="dim")
         else:
             # 通常のメッセージを表示
             for msg in self.messages:
@@ -178,7 +200,8 @@ class ManagerChatPanel(Container):
 
     def compose(self):
         """ウィジェットを構成"""
-        yield self.chat_widget
+        with VerticalScroll(id="manager_chat_scroll"):
+            yield self.chat_widget
         yield self.input_widget
 
     def set_send_callback(self, callback: Callable[[str], None]):

@@ -1,7 +1,7 @@
 """Agent List Widget - エージェント一覧表示"""
 from textual.widgets import Static
 from rich.text import Text
-from typing import Dict, Any
+from typing import Dict, Any, Optional, Callable
 
 
 class AgentListWidget(Static, can_focus=True):
@@ -23,10 +23,18 @@ class AgentListWidget(Static, can_focus=True):
         "error": "✗",
     }
 
-    def __init__(self, *args, **kwargs):
+    BINDINGS = [
+        ("up", "select_previous_agent", "Select Previous"),
+        ("down", "select_next_agent", "Select Next"),
+        ("pageup", "page_up", "Page Up"),
+        ("pagedown", "page_down", "Page Down"),
+    ]
+
+    def __init__(self, *args, on_selection_changed: Optional[Callable[[str, Dict[str, Any]], None]] = None, **kwargs):
         super().__init__(*args, **kwargs)
         self.agents: Dict[str, Dict[str, Any]] = {}
         self.selected_index = 0
+        self.on_selection_changed = on_selection_changed
 
     def update_agent(
         self,
@@ -65,12 +73,29 @@ class AgentListWidget(Static, can_focus=True):
         if self.agents:
             self.selected_index = (self.selected_index + 1) % len(self.agents)
             self.refresh_display()
+            self._notify_selection_changed()
 
     def select_prev(self):
         """前のエージェントを選択"""
         if self.agents:
             self.selected_index = (self.selected_index - 1) % len(self.agents)
             self.refresh_display()
+            self._notify_selection_changed()
+
+    def _notify_selection_changed(self):
+        """選択変更を通知"""
+        if self.on_selection_changed:
+            agent_id = self.get_selected_agent()
+            if agent_id and agent_id in self.agents:
+                self.on_selection_changed(agent_id, self.agents[agent_id])
+
+    def action_select_next_agent(self):
+        """次のエージェントを選択（キーボードアクション）"""
+        self.select_next()
+
+    def action_select_previous_agent(self):
+        """前のエージェントを選択（キーボードアクション）"""
+        self.select_prev()
 
     def refresh_display(self):
         """表示を更新"""
