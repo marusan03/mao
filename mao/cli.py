@@ -110,17 +110,6 @@ def main():
     help="Enable tmux agent monitor (default: enabled)",
 )
 @click.option(
-    "--tmux-layout",
-    type=click.Choice(["tiled", "horizontal", "vertical", "main-horizontal", "main-vertical", "grid"]),
-    default="grid",
-    help="tmux layout style (default: grid for 3x3 multi-agent layout)",
-)
-@click.option(
-    "--grid",
-    is_flag=True,
-    help="Use 3x3 grid layout for multi-agent execution (same as --tmux-layout=grid)",
-)
-@click.option(
     "--task",
     "-t",
     help="Initial task prompt (alternative to positional argument)",
@@ -142,8 +131,6 @@ def start(
     redis_url: str,
     no_redis: bool,
     tmux: bool,
-    tmux_layout: str,
-    grid: bool,
     task: Optional[str],
     role: str,
     model: str,
@@ -161,8 +148,8 @@ def start(
         console.print("\n[yellow]💡 使い方:[/yellow]")
         console.print("  タスクを指定してエージェントを起動:")
         console.print("    [cyan]mao start \"ログイン機能のテストを書いて\"[/cyan]")
-        console.print("\n  グリッドレイアウトで複数エージェント起動:")
-        console.print("    [cyan]mao start --grid \"認証システムを実装\"[/cyan]")
+        console.print("\n  インタラクティブモードで複数エージェント起動:")
+        console.print("    [cyan]mao start \"認証システムを実装\"[/cyan]")
         console.print("\n  詳細: [dim]cat USAGE.md[/dim]\n")
     else:
         console.print(f"\n[cyan]📋 タスク:[/cyan] {initial_prompt}")
@@ -193,26 +180,22 @@ def start(
         if config.defaults and config.defaults.tmux:
             grid_config = config.defaults.tmux.grid
             tmux_manager = TmuxManager(
-                use_grid_layout=use_grid,
+                use_grid_layout=True,
                 grid_width=grid_config.width,
                 grid_height=grid_config.height,
                 num_workers=grid_config.num_workers,
             )
         else:
-            # デフォルト値を使用
-            tmux_manager = TmuxManager(use_grid_layout=use_grid)
+            # デフォルト値を使用（常にグリッドレイアウト）
+            tmux_manager = TmuxManager(use_grid_layout=True)
 
         if not tmux_manager.is_tmux_available():
             console.print("[yellow]⚠ tmux not found, running without tmux monitor[/yellow]")
             tmux_manager = None
         else:
             if tmux_manager.create_session():
-                if use_grid:
-                    console.print(f"\n[green]✓ Grid Layout[/green]")
-                    console.print(f"  📋 Manager + 🔧 {tmux_manager.num_workers} Workers")
-                else:
-                    tmux_manager.set_layout(tmux_layout)
-                    console.print(f"\n[green]✓ tmux session ready[/green]")
+                console.print(f"\n[green]✓ Grid Layout[/green]")
+                console.print(f"  📋 Manager + 🔧 {tmux_manager.num_workers} Workers")
                 console.print(f"  [cyan]tmux attach -t mao[/cyan] でエージェントを確認")
             else:
                 tmux_manager = None

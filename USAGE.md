@@ -15,7 +15,7 @@ mao init
 mao start "ログイン機能のテストを書いて"
 
 # グリッドレイアウトで複数エージェント起動
-mao start --grid "認証システムを実装して"
+mao start  "認証システムを実装して"
 ```
 
 **重要**: タスクを指定すると、自動的にClaude Codeエージェントが起動して作業を開始します！
@@ -45,7 +45,7 @@ mao start --grid "認証システムを実装して"
 - `r`: 画面更新
 - `Ctrl+C`: 緊急停止
 
-### tmuxグリッド（--grid使用時）
+### tmuxグリッド（使用時）
 
 別ターミナルで`tmux attach -t mao`を実行すると、3x3グリッドが表示されます：
 
@@ -89,7 +89,7 @@ mao start --role coder_backend "API エンドポイント /users が500エラー
 
 ### 例3: 複雑なタスクを複数エージェントで
 ```bash
-mao start --grid "完全な認証システムを実装：ログイン、ログアウト、パスワードリセット"
+mao start  "完全な認証システムを実装：ログイン、ログアウト、パスワードリセット"
 ```
 
 ### 例4: コードレビュー
@@ -155,7 +155,7 @@ apt install tmux   # Ubuntu
 ### ダッシュボードが見づらい
 ```bash
 # tmuxのみで起動（ダッシュボードを最小化）
-mao start --grid "タスク"
+mao start  "タスク"
 # 別ターミナルで
 tmux attach -t mao
 ```

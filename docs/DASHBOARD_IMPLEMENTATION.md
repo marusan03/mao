@@ -155,8 +155,8 @@ from mao.ui.dashboard_simple import SimpleDashboard as Dashboard
 # 通常起動
 mao start "タスクの説明"
 
-# グリッドレイアウト
-mao start --grid "複雑なタスク"
+# 複雑なタスク（複数エージェント）
+mao start "複雑なタスク"
 ```
 
 ### 確認項目
