@@ -1,0 +1,95 @@
+name: commit
+display_name: "📦 Smart Commit & Release"
+description: |
+  Intelligently analyze changes, create a commit, update CHANGELOG, create version tag, and push to remote.
+
+  This skill automates the entire release workflow:
+  1. Analyze git status and staged changes
+  2. Generate a descriptive commit message based on changes
+  3. Create the commit with Co-Authored-By: Claude
+  4. Update CHANGELOG.md with the new changes
+  5. Optionally create a version tag
+  6. Push everything to remote
+
+  Usage:
+    /commit                          # Auto-analyze and commit all changes
+    /commit -m "Custom message"      # Use custom commit message
+    /commit --tag v0.3.0             # Commit and create version tag
+    /commit --no-changelog           # Skip CHANGELOG update
+    /commit --no-push                # Don't push to remote
+
+version: "1.0.0"
+
+parameters:
+  - name: message
+    short: m
+    description: "Custom commit message (optional)"
+    type: string
+    required: false
+
+  - name: tag
+    short: t
+    description: "Version tag to create (e.g., v0.3.0)"
+    type: string
+    required: false
+
+  - name: no-changelog
+    description: "Skip CHANGELOG.md update"
+    type: boolean
+    default: false
+
+  - name: no-push
+    description: "Skip pushing to remote"
+    type: boolean
+    default: false
+
+  - name: auto-stage
+    short: a
+    description: "Automatically stage all modified files"
+    type: boolean
+    default: true
+
+examples:
+  - command: "/commit"
+    description: "Auto-analyze changes and commit"
+
+  - command: "/commit -m 'Fix authentication bug'"
+    description: "Commit with custom message"
+
+  - command: "/commit --tag v0.3.0"
+    description: "Commit and create release tag v0.3.0"
+
+  - command: "/commit --no-push"
+    description: "Commit without pushing to remote"
+
+# Script is in commit.sh - see that file for implementation
+script: "# See commit.sh"
+
+security:
+  risk_level: medium
+  requires_approval: false
+  dangerous_operations:
+    - git_push
+    - file_modification
+
+  rationale: |
+    This skill modifies files (CHANGELOG) and pushes to remote repository.
+    It's considered medium risk because:
+    - It can create commits and tags
+    - It pushes to remote (can be disabled with --no-push)
+    - It modifies CHANGELOG.md
+
+    However, it's safe because:
+    - All changes are visible in git
+    - Can be reverted with git reset
+    - User controls what gets staged
+
+metadata:
+  category: version_control
+  tags:
+    - git
+    - commit
+    - release
+    - changelog
+  author: "Claude Opus 4.5"
+  created_at: "2026-02-02"
