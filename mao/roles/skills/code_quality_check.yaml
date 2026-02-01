@@ -1,0 +1,89 @@
+name: code_quality_check
+version: "1.0.0"
+description: "Comprehensive code quality check using ruff (linter/formatter) and pyright (type checker)"
+category: development
+tags:
+  - linting
+  - formatting
+  - type-checking
+  - code-quality
+
+# エージェントへの説明
+agent_description: |
+  コード品質をチェックするスキル。以下を実行します：
+  1. ruff でコードの lint チェック（スタイル、バグ検出）
+  2. ruff でコードのフォーマットチェック
+  3. pyright で型チェック（型の整合性）
+
+  使い方:
+  - 通常のチェック: ./scripts/check_code_quality.sh
+  - 自動修正付き: ./scripts/check_code_quality.sh --fix
+
+# スキルの実行方法
+execution:
+  type: script
+  command: ./scripts/check_code_quality.sh
+
+  # オプション
+  options:
+    - name: fix
+      flag: --fix
+      description: "自動修正を適用（可能な場合）"
+      default: false
+
+# 前提条件
+prerequisites:
+  - name: ruff
+    type: package
+    install_command: "pip install ruff"
+    check_command: "ruff --version"
+
+  - name: pyright
+    type: package
+    install_command: "pip install pyright"
+    check_command: "pyright --version"
+
+# 期待される出力
+output:
+  success_indicators:
+    - "✅ Ruff linter"
+    - "✅ Ruff formatter"
+    - "✅ Pyright type checker"
+    - "🎉 All checks passed!"
+
+  failure_indicators:
+    - "error:"
+    - "❌"
+    - "Found"
+
+# 使用例
+examples:
+  - description: "コード品質チェック（読み取り専用）"
+    command: "./scripts/check_code_quality.sh"
+
+  - description: "コード品質チェック＋自動修正"
+    command: "./scripts/check_code_quality.sh --fix"
+
+# エージェントへの推奨事項
+recommendations:
+  when_to_use:
+    - "コードを書いた後"
+    - "プルリクエストを作成する前"
+    - "コミットする前"
+    - "コードレビューを受ける前"
+
+  what_to_check:
+    - "新規作成したファイル"
+    - "変更したファイル"
+    - "プロジェクト全体（重要な変更の場合）"
+
+# 一般的な問題と解決策
+troubleshooting:
+  - problem: "ruff not found"
+    solution: "pip install ruff を実行してインストール"
+
+  - problem: "pyright not found"
+    solution: "pip install pyright を実行してインストール"
+
+  - problem: "多数のエラーが表示される"
+    solution: "--fix オプションを使って自動修正可能なものを修正"
