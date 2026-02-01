@@ -283,6 +283,45 @@ class InteractiveDashboard(App):
         self._update_task: Optional[asyncio.Task] = None
         self._message_polling_task: Optional[asyncio.Task] = None
 
+    async def _extract_and_spawn_tasks(self, text: str) -> None:
+        """CTOの応答からタスク指示を抽出してワーカーを起動
+
+        Args:
+            text: CTOの応答テキスト
+        """
+        import re
+
+        # タスクパターンを検索 (Task N: で始まる行)
+        task_pattern = r'(?:Task|タスク)\s*(\d+)[:：]\s*(.+?)(?=\n(?:Task|タスク)\s*\d+[:：]|\n---|\n\n\n|$)'
+        tasks = re.findall(task_pattern, text, re.DOTALL | re.MULTILINE)
+
+        for task_num, task_content in tasks:
+            # Role/ロール を抽出
+            role_match = re.search(r'(?:Role|ロール)[:：]\s*(\w+)', task_content, re.IGNORECASE)
+            role = role_match.group(1) if role_match else "general-purpose"
+
+            # Model/モデル を抽出
+            model_match = re.search(r'(?:Model|モデル)[:：]\s*(\w+)', task_content, re.IGNORECASE)
+            model = model_match.group(1) if model_match else "sonnet"
+
+            # タスク説明を抽出（最初の行）
+            task_lines = task_content.strip().split('\n')
+            task_description = task_lines[0].strip()
+
+            if self.log_viewer_widget:
+                self.log_viewer_widget.add_log(
+                    f"🚀 タスク{task_num}をワーカーに割り当て: {role} ({model})",
+                    level="INFO",
+                    agent_id="manager",
+                )
+
+            # ワーカーを起動
+            await self._spawn_task_agent(
+                task_description=task_description,
+                worker_role=role,
+                model=model
+            )
+
     def _extract_feedbacks(self, text: str) -> None:
         """テキストからフィードバックを抽出して保存
 
@@ -628,19 +667,16 @@ class InteractiveDashboard(App):
         """
         # エージェントIDを生成
         timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-        agent_id = f"worker-{timestamp}"
+        worker_num = len([a for a in self.agents if a.startswith("worker-")]) + 1
+        agent_id = f"worker-{worker_num}"
+        pane_role = f"worker-{worker_num}"  # tmux grid paneのロール名
 
         if self.log_viewer_widget:
             self.log_viewer_widget.add_log(
-                f"🚀 Starting worker: {agent_id} ({worker_role})",
+                f"🚀 Starting {agent_id}: {task_description[:50]}...",
                 level="INFO",
                 agent_id="manager",
             )
-
-        # ClaudeCodeExecutorを使ってエージェントを起動
-        executor = ClaudeCodeExecutor(
-            allow_unsafe_operations=self.config.security.allow_unsafe_operations
-        )
 
         try:
             # エージェントの状態を登録
@@ -660,12 +696,54 @@ class InteractiveDashboard(App):
                     role=worker_role,
                 )
 
-            # バックグラウンドでエージェントを実行
-            asyncio.create_task(
-                self._execute_worker_agent(
-                    executor, agent_id, task_description, worker_role, model
+            # tmuxペインに割り当てて実行
+            if self.tmux_manager:
+                # ペインに割り当て
+                pane_id = self.tmux_manager.assign_agent_to_pane(
+                    role=pane_role,
+                    agent_id=agent_id,
+                    work_dir=self.work_dir
                 )
-            )
+
+                if pane_id:
+                    # tmuxペイン内でclaude-codeを実行
+                    self.tmux_manager.execute_claude_code_in_pane(
+                        pane_id=pane_id,
+                        prompt=task_description,
+                        model=model,
+                        work_dir=self.work_dir,
+                        allow_unsafe=self.config.security.allow_unsafe_operations
+                    )
+
+                    self.agents[agent_id] = {
+                        "role": worker_role,
+                        "pane_id": pane_id,
+                        "task": task_description
+                    }
+
+                    if self.log_viewer_widget:
+                        self.log_viewer_widget.add_log(
+                            f"✅ {agent_id} started in tmux pane {pane_id}",
+                            level="INFO",
+                            agent_id="manager",
+                        )
+                else:
+                    if self.log_viewer_widget:
+                        self.log_viewer_widget.add_log(
+                            f"⚠️ Could not assign {agent_id} to tmux pane",
+                            level="WARN",
+                            agent_id="manager",
+                        )
+            else:
+                # tmuxなしの場合は直接実行
+                executor = ClaudeCodeExecutor(
+                    allow_unsafe_operations=self.config.security.allow_unsafe_operations
+                )
+                asyncio.create_task(
+                    self._execute_worker_agent(
+                        executor, agent_id, task_description, worker_role, model
+                    )
+                )
 
         except Exception as e:
             if self.log_viewer_widget:
@@ -882,6 +960,9 @@ Description: |
 
                 # フィードバックを抽出
                 self._extract_feedbacks(response)
+
+                # タスク指示を抽出してワーカーを起動
+                await self._extract_and_spawn_tasks(response)
 
                 if self.log_viewer_widget:
                     self.log_viewer_widget.add_log(
