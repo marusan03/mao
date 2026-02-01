@@ -309,6 +309,50 @@ class InteractiveDashboard(App):
         self._update_task: Optional[asyncio.Task] = None
         self._message_polling_task: Optional[asyncio.Task] = None
 
+    async def _handle_feedback_completion(self, response: str) -> None:
+        """Feedback完了を処理
+
+        Args:
+            response: CTOの応答テキスト
+        """
+        import re
+
+        # PR URLとサマリーを抽出
+        completion_pattern = r'\[FEEDBACK_COMPLETED\](.*?)\[/FEEDBACK_COMPLETED\]'
+        match = re.search(completion_pattern, response, re.DOTALL)
+
+        if match:
+            completion_info = match.group(1)
+
+            # PR URLを抽出
+            pr_match = re.search(r'PR:\s*(.+)', completion_info)
+            pr_url = pr_match.group(1).strip() if pr_match else "N/A"
+
+            # サマリーを抽出
+            summary_match = re.search(r'Summary:\s*(.+)', completion_info, re.DOTALL)
+            summary = summary_match.group(1).strip() if summary_match else "完了"
+
+            if self.log_viewer_widget:
+                self.log_viewer_widget.add_log(
+                    f"✅ Feedback改善が完了しました",
+                    level="INFO",
+                    agent_id="manager",
+                )
+                self.log_viewer_widget.add_log(
+                    f"PR: {pr_url}",
+                    level="INFO",
+                    agent_id="manager",
+                )
+
+            if self.manager_chat_panel:
+                self.manager_chat_panel.add_system_message(
+                    f"✅ Feedback改善完了\nPR: {pr_url}\n\nMAOを終了します..."
+                )
+
+            # 数秒待ってから終了
+            await asyncio.sleep(3)
+            self.exit()
+
     async def _extract_and_spawn_tasks(self, text: str) -> None:
         """CTOの応答からタスク指示を抽出してワーカーを起動
 
@@ -1085,6 +1129,30 @@ Branch: {worker_branch}
 回答は簡潔に、具体的に行ってください。
 
 ---
+**Feedback改善モード完了フロー:**
+
+すべてのタスクが完了したら、以下の手順で仕上げを行ってください：
+
+1. **変更をコミット:**
+   `/commit` スキルを使用して変更をコミット・プッシュします。
+   例: `/commit -m "Fix: 認証バグを修正"`
+
+2. **Pull Requestを作成:**
+   `/pr` スキルを使用してPRを作成します。
+   例: `/pr --title "Fix: 認証バグ修正" --labels bug`
+
+3. **完了を宣言:**
+   以下のフォーマットで完了を報告してください：
+   ```
+   [FEEDBACK_COMPLETED]
+   PR: <PR URL>
+   Summary: 完了した作業の簡潔な要約
+   [/FEEDBACK_COMPLETED]
+   ```
+
+これにより、MAOは自動的にクリーンアップを行い、次のfeedbackに進みます。
+
+---
 MAO へのフィードバック:
 作業中に MAO 自体の改善案を発見した場合、以下のフォーマットで記録してください：
 
@@ -1113,6 +1181,10 @@ Description: |
 
                 # フィードバックを抽出
                 self._extract_feedbacks(response)
+
+                # Feedback完了を検知
+                if self.feedback_branch and "[FEEDBACK_COMPLETED]" in response:
+                    await self._handle_feedback_completion(response)
 
                 # タスク指示を抽出してワーカーを起動
                 await self._extract_and_spawn_tasks(response)

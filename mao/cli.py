@@ -1291,63 +1291,11 @@ def improve_feedback(feedback_id: str, project_dir: str, model: str, no_issue: b
 
         # 完了後の処理
         console.print("\n[bold]Work completed![/bold]")
+        console.print("[dim]CTOが /commit と /pr スキルでPRを作成済みです[/dim]")
 
-        # 変更をプッシュ
-        console.print("\n[bold]Pushing changes...[/bold]")
-        if worktree_manager.push_branch(feedback_worktree, branch_name):
-            console.print("[bold green]✓ Changes pushed[/bold green]")
-
-            # PR を自動作成（no_pr でない場合）
-            if not no_pr and is_github_repo:
-                console.print("\n[bold]Creating Pull Request...[/bold]")
-
-                # PR の本文を作成
-                pr_body = f"""## Summary
-This PR addresses feedback: {fb.title}
-
-## Feedback Details
-- **Category**: {fb.category}
-- **Priority**: {fb.priority}
-- **Feedback ID**: {fb.id}
-"""
-
-                if issue_number:
-                    pr_body += f"\nCloses #{issue_number}\n"
-
-                pr_body += f"""
-## Description
-{fb.description}
-
-## Changes
-<!-- MAO による変更内容 -->
-
-## Test Plan
-- [ ] Tests added/updated
-- [ ] Documentation updated
-- [ ] Changes reviewed
-
----
-*This PR was created automatically by MAO feedback improvement workflow.*
-"""
-
-                pr_url = worktree_manager.create_pr(
-                    worktree_path=feedback_worktree,
-                    title=f"{fb.category}: {fb.title}",
-                    body=pr_body,
-                    base="main"
-                )
-
-                if pr_url:
-                    console.print(f"[bold green]✓ PR created![/bold green]")
-                    console.print(f"[cyan]{pr_url}[/cyan]")
-
-                    # フィードバックを completed に
-                    manager.update_status(feedback_id, "completed")
-                    console.print("[bold green]✓ Feedback marked as completed[/bold green]")
-                else:
-                    console.print(f"[bold yellow]⚠ Failed to create PR[/bold yellow]")
-        else:
-            console.print(f"[bold yellow]⚠ Failed to push changes[/bold yellow]")
+        # フィードバックを completed に
+        manager.update_status(feedback_id, "completed")
+        console.print("[bold green]✓ Feedback marked as completed[/bold green]")
 
     except KeyboardInterrupt:
         console.print("\n[bold yellow]⚠ Interrupted by user[/bold yellow]")
@@ -1361,6 +1309,63 @@ This PR addresses feedback: {fb.title}
 
         if not success:
             manager.update_status(feedback_id, "pending")
+
+    # 連続改善: 次のfeedbackを提案
+    if success:
+        # pendingのfeedbackを取得
+        pending_feedbacks = [
+            f for f in manager.list_feedbacks()
+            if f.status == "pending"
+        ]
+
+        if pending_feedbacks:
+            console.print(f"\n[bold cyan]📋 次のフィードバック ({len(pending_feedbacks)}件残り)[/bold cyan]\n")
+
+            # 最初の3件を表示
+            from rich.table import Table
+            table = Table(show_header=True, header_style="bold magenta")
+            table.add_column("#", style="dim", width=4)
+            table.add_column("タイトル", width=40)
+            table.add_column("カテゴリ", width=12)
+            table.add_column("優先度", width=10)
+
+            for idx, f in enumerate(pending_feedbacks[:3], 1):
+                table.add_row(
+                    str(idx),
+                    f.title,
+                    f.category,
+                    f.priority,
+                )
+
+            console.print(table)
+
+            # 次のfeedbackを選択
+            console.print("\n[yellow]オプション:[/yellow]")
+            console.print("  [cyan]1-3[/cyan]: 次のフィードバックを改善")
+            console.print("  [cyan]n[/cyan]:   終了")
+
+            choice = console.input("\n[bold]次のフィードバックに進みますか？[/bold] ").strip().lower()
+
+            if choice.isdigit():
+                idx = int(choice)
+                if 1 <= idx <= min(3, len(pending_feedbacks)):
+                    next_feedback = pending_feedbacks[idx - 1]
+                    console.print(f"\n[green]✓ 次のフィードバックに進みます: {next_feedback.title}[/green]")
+
+                    # 再帰的に次のfeedbackを処理
+                    from click import Context
+                    ctx = Context(improve_feedback)
+                    ctx.invoke(
+                        improve_feedback,
+                        feedback_id=next_feedback.id,
+                        project_dir=project_dir,
+                        model=model,
+                        no_issue=no_issue,
+                        no_pr=no_pr,
+                    )
+                    return
+
+        console.print("\n[green]✅ すべてのフィードバック改善が完了しました！[/green]")
 
 
 @main.group()
