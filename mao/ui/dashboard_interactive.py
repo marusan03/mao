@@ -321,6 +321,12 @@ class InteractiveDashboard(App):
         task_pattern = r'(?:Task|タスク)\s*(\d+)[:：]\s*(.+?)(?=\n(?:Task|タスク)\s*\d+[:：]|\n---|\n\n\n|$)'
         tasks = re.findall(task_pattern, text, re.DOTALL | re.MULTILINE)
 
+        if not tasks:
+            return
+
+        # タスクサマリーを作成してTask Infoを更新
+        task_summaries = []
+
         for task_num, task_content in tasks:
             # Role/ロール を抽出
             role_match = re.search(r'(?:Role|ロール)[:：]\s*(\w+)', task_content, re.IGNORECASE)
@@ -334,6 +340,13 @@ class InteractiveDashboard(App):
             task_lines = task_content.strip().split('\n')
             task_description = task_lines[0].strip()
 
+            # サマリーに追加
+            task_summaries.append({
+                'num': task_num,
+                'description': task_description,
+                'role': role,
+            })
+
             if self.log_viewer_widget:
                 self.log_viewer_widget.add_log(
                     f"🚀 タスク{task_num}をワーカーに割り当て: {role} ({model})",
@@ -346,6 +359,26 @@ class InteractiveDashboard(App):
                 task_description=task_description,
                 worker_role=role,
                 model=model
+            )
+
+        # Task Infoを更新
+        if self.header_widget and task_summaries:
+            # 簡潔なタスク説明を作成
+            task_info_text = f"CTOが{len(task_summaries)}つのタスクに分解:\n"
+            for task in task_summaries[:3]:  # 最大3件表示
+                short_desc = task['description'][:40]
+                if len(task['description']) > 40:
+                    short_desc += "..."
+                task_info_text += f"  {task['num']}. {short_desc}\n"
+
+            if len(task_summaries) > 3:
+                task_info_text += f"  ... 他{len(task_summaries) - 3}件"
+
+            # ヘッダーを更新
+            self.header_widget.update_task_info(
+                task_description=task_info_text.strip(),
+                active_count=len(task_summaries),
+                total_count=len(task_summaries),
             )
 
     def _extract_feedbacks(self, text: str) -> None:
