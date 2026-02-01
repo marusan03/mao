@@ -1053,12 +1053,18 @@ Branch: {worker_branch}
 
             # Worktree ワークフローの説明を追加（Feedbackモードの場合）
             worktree_instructions = ""
+            task_type = "Feedback" if "feedback/" in str(self.feedback_branch) else "Improvement"
+
             if self.feedback_branch and self.worktree_manager:
                 worktree_instructions = f"""
 ---
 ⚠️ **Git Worktree ワークフロー有効**
 
-現在、Feedbackブランチ `{self.feedback_branch}` で作業しています。
+現在、{task_type}ブランチ `{self.feedback_branch}` で作業しています。
+
+**{task_type}タイプについて:**
+- **Feedback**: MAOプロジェクト自体の改善（どのプロジェクトからでもfeedbackを作成可能、MAOでのみimprove実行）
+- **Improvement**: 任意のプロジェクトの改善（プロジェクト固有の機能追加や改善）
 
 **ワーカーの作業フロー:**
 1. 各ワーカーは独自の git worktree と branch で作業します

@@ -935,9 +935,206 @@ def skills_delete(skill_name: str, yes: bool):
         sys.exit(1)
 
 
+def _is_mao_project(project_path: Path) -> bool:
+    """MAOプロジェクトかどうかを判定
+
+    Args:
+        project_path: プロジェクトパス
+
+    Returns:
+        MAOプロジェクトの場合True
+    """
+    # pyproject.toml を確認
+    pyproject = project_path / "pyproject.toml"
+    if pyproject.exists():
+        try:
+            # Python 3.11+ uses tomllib, older versions use tomli
+            try:
+                import tomllib
+            except ImportError:
+                import tomli as tomllib
+
+            with open(pyproject, "rb") as f:
+                data = tomllib.load(f)
+                project_name = data.get("project", {}).get("name", "")
+                return project_name == "mao"
+        except Exception:
+            pass
+
+    # setup.py を確認
+    setup_py = project_path / "setup.py"
+    if setup_py.exists():
+        try:
+            content = setup_py.read_text()
+            return 'name="mao"' in content or "name='mao'" in content
+        except Exception:
+            pass
+
+    return False
+
+
+@main.group()
+def improve():
+    """Manage project improvements"""
+    pass
+
+
+@improve.command("create")
+@click.option("--project-dir", default=".", help="Project directory")
+@click.option("--title", "-t", required=True, help="Improvement title")
+@click.option("--description", "-d", required=True, help="Improvement description")
+@click.option(
+    "--category",
+    "-c",
+    type=click.Choice(["feature", "bug", "refactor", "performance", "documentation"]),
+    default="feature",
+    help="Improvement category",
+)
+@click.option(
+    "--priority",
+    "-p",
+    type=click.Choice(["low", "medium", "high", "critical"]),
+    default="medium",
+    help="Improvement priority",
+)
+def create_improvement(
+    project_dir: str, title: str, description: str, category: str, priority: str
+):
+    """Create a new project improvement task"""
+    from mao.orchestrator.improvement_manager import ImprovementManager
+
+    project_path = Path(project_dir).resolve()
+    manager = ImprovementManager(project_path=project_path)
+
+    improvement = manager.create_improvement(
+        title=title,
+        description=description,
+        category=category,
+        priority=priority,
+    )
+
+    console.print(f"\n[bold green]✓ Improvement created![/bold green]")
+    console.print(f"[cyan]ID:[/cyan] {improvement.id[:12]}")
+    console.print(f"[cyan]Title:[/cyan] {improvement.title}")
+    console.print(f"[cyan]Category:[/cyan] {improvement.category}")
+    console.print(f"[cyan]Priority:[/cyan] {improvement.priority}")
+    console.print(f"\n[dim]Use 'mao improve start {improvement.id[:8]}' to work on it[/dim]")
+
+
+@improve.command("list")
+@click.option("--project-dir", default=".", help="Project directory")
+@click.option("--status", type=click.Choice(["pending", "in_progress", "completed", "cancelled"]), help="Filter by status")
+@click.option("--category", type=click.Choice(["feature", "bug", "refactor", "performance", "documentation"]), help="Filter by category")
+def list_improvements(project_dir: str, status: Optional[str], category: Optional[str]):
+    """List all project improvements"""
+    from rich.table import Table
+    from mao.orchestrator.improvement_manager import ImprovementManager
+
+    project_path = Path(project_dir).resolve()
+    manager = ImprovementManager(project_path=project_path)
+
+    improvements = manager.list_improvements(status=status, category=category)
+
+    if not improvements:
+        console.print("[yellow]No improvements found[/yellow]")
+        return
+
+    # 統計を表示
+    stats = manager.get_stats()
+    console.print(f"\n[bold cyan]📋 Project Improvements ({stats['total']} total)[/bold cyan]")
+    console.print(
+        f"[dim]Pending: {stats['pending']} | In Progress: {stats['in_progress']} | "
+        f"Completed: {stats['completed']} | Cancelled: {stats['cancelled']}[/dim]\n"
+    )
+
+    # テーブルを作成
+    table = Table(show_header=True, header_style="bold magenta")
+    table.add_column("ID", width=12)
+    table.add_column("Title", width=40)
+    table.add_column("Category", width=12)
+    table.add_column("Priority", width=10)
+    table.add_column("Status", width=12)
+
+    status_colors = {
+        "pending": "yellow",
+        "in_progress": "cyan",
+        "completed": "green",
+        "cancelled": "red",
+    }
+
+    for imp in improvements:
+        status_color = status_colors.get(imp.status, "white")
+        table.add_row(
+            imp.id[:12],
+            imp.title,
+            imp.category,
+            imp.priority,
+            f"[{status_color}]{imp.status}[/{status_color}]",
+        )
+
+    console.print(table)
+
+
+@improve.command("show")
+@click.argument("improvement_id")
+@click.option("--project-dir", default=".", help="Project directory")
+def show_improvement(improvement_id: str, project_dir: str):
+    """Show detailed improvement information"""
+    from rich.panel import Panel
+    from rich.markdown import Markdown
+    from mao.orchestrator.improvement_manager import ImprovementManager
+
+    project_path = Path(project_dir).resolve()
+    manager = ImprovementManager(project_path=project_path)
+
+    improvement = manager.get_improvement(improvement_id)
+
+    if not improvement:
+        console.print(f"[bold red]✗ Improvement not found: {improvement_id}[/bold red]")
+        return
+
+    # 詳細を表示
+    console.print(f"\n[bold cyan]📋 Improvement: {improvement.title}[/bold cyan]\n")
+    console.print(f"[bold]ID:[/bold] {improvement.id}")
+    console.print(f"[bold]Category:[/bold] {improvement.category}")
+    console.print(f"[bold]Priority:[/bold] {improvement.priority}")
+    console.print(f"[bold]Status:[/bold] {improvement.status}")
+    console.print(f"[bold]Created:[/bold] {improvement.created_at}")
+    console.print(f"[bold]Updated:[/bold] {improvement.updated_at}")
+
+    if improvement.completed_at:
+        console.print(f"[bold]Completed:[/bold] {improvement.completed_at}")
+
+    if improvement.pr_url:
+        console.print(f"[bold]PR:[/bold] {improvement.pr_url}")
+
+    if improvement.branch_name:
+        console.print(f"[bold]Branch:[/bold] {improvement.branch_name}")
+
+    console.print(f"\n[bold]Description:[/bold]")
+    console.print(Panel(Markdown(improvement.description), border_style="cyan"))
+
+
+@improve.command("start")
+@click.argument("improvement_id")
+@click.option("--project-dir", default=".", help="Project directory")
+@click.option("--model", default="sonnet", type=click.Choice(["sonnet", "opus", "haiku"]), help="Model to use")
+@click.option("--no-issue", is_flag=True, help="Don't create GitHub issue")
+def start_improvement(
+    improvement_id: str,
+    project_dir: str,
+    model: str,
+    no_issue: bool,
+):
+    """Start working on a project improvement"""
+    # Implementation similar to feedback improve but for any project
+    console.print("[yellow]improve start コマンドは実装中です[/yellow]")
+    console.print("[dim]詳細は次のコミットで追加されます[/dim]")
+
+
 @main.group()
 def feedback():
-    """Manage feedback for MAO improvements"""
+    """Manage feedback for MAO improvements (can create from any project, improve only on MAO)"""
     pass
 
 
@@ -1065,7 +1262,7 @@ def list_feedbacks(status: Optional[str], category: Optional[str], priority: Opt
 @click.option("--no-issue", is_flag=True, help="Skip creating GitHub issue")
 @click.option("--no-pr", is_flag=True, help="Skip creating GitHub PR")
 def improve_feedback(feedback_id: str, project_dir: str, model: str, no_issue: bool, no_pr: bool):
-    """Work on feedback - run MAO to improve MAO with issue/PR creation"""
+    """Work on feedback - run MAO to improve MAO with issue/PR creation (MAO project only)"""
     from mao.orchestrator.feedback_manager import FeedbackManager
     from mao.orchestrator.project_loader import ProjectLoader
     from mao.ui.dashboard_interactive import InteractiveDashboard
@@ -1073,6 +1270,14 @@ def improve_feedback(feedback_id: str, project_dir: str, model: str, no_issue: b
     import json
 
     project_path = Path(project_dir).resolve()
+
+    # MAOプロジェクトかチェック
+    if not _is_mao_project(project_path):
+        console.print("[bold red]✗ Feedback improve can only be run on MAO project[/bold red]")
+        console.print("[dim]Feedback can be created from any project, but improved only on MAO[/dim]")
+        console.print("[dim]For other projects, use 'mao improve' commands instead[/dim]")
+        return
+
     manager = FeedbackManager(project_path=project_path)
 
     # フィードバックを取得（短縮IDにも対応）
