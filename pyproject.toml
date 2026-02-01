@@ -99,7 +99,6 @@ select = [
 ]
 ignore = [
     "E501",   # line too long (handled by formatter)
-    "B008",   # do not perform function calls in argument defaults
     "SIM105", # use contextlib.suppress (sometimes explicit is better)
 ]
 
