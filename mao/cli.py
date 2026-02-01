@@ -1076,7 +1076,7 @@ def list_improvements(project_dir: str, status: Optional[str], category: Optiona
 
 
 @project.command("show")
-@click.argument("improvement_id")
+@click.argument("improvement_id", shell_complete=cli_completion.complete_improvement_ids)
 @click.option("--project-dir", default=".", help="Project directory")
 def show_improvement(improvement_id: str, project_dir: str):
     """Show detailed improvement information"""
@@ -1117,7 +1117,7 @@ def show_improvement(improvement_id: str, project_dir: str):
 
 
 @project.command("delete")
-@click.argument("improvement_id")
+@click.argument("improvement_id", shell_complete=cli_completion.complete_improvement_ids)
 @click.option("--project-dir", default=".", help="Project directory")
 @click.option("--yes", "-y", is_flag=True, help="Skip confirmation")
 def delete_improvement(improvement_id: str, project_dir: str, yes: bool):
@@ -1152,9 +1152,9 @@ def delete_improvement(improvement_id: str, project_dir: str, yes: bool):
 
 
 @project.command("improve")
-@click.argument("improvement_id")
+@click.argument("improvement_id", shell_complete=cli_completion.complete_improvement_ids)
 @click.option("--project-dir", default=".", help="Project directory")
-@click.option("--model", default="sonnet", type=click.Choice(["sonnet", "opus", "haiku"]), help="Model to use")
+@click.option("--model", default="sonnet", type=click.Choice(["sonnet", "opus", "haiku"]), help="Model to use", shell_complete=cli_completion.complete_models)
 @click.option("--no-issue", is_flag=True, help="Don't create GitHub issue")
 def improve_project(
     improvement_id: str,
@@ -1679,7 +1679,7 @@ def list_sessions(project_dir: str, limit: int):
 
 
 @session.command("rename")
-@click.argument("session_id")
+@click.argument("session_id", shell_complete=cli_completion.complete_session_ids)
 @click.argument("new_title")
 @click.option("--project-dir", default=".", help="Project directory")
 def rename_session(session_id: str, new_title: str, project_dir: str):
@@ -1714,7 +1714,7 @@ def rename_session(session_id: str, new_title: str, project_dir: str):
 
 
 @session.command("delete")
-@click.argument("session_id")
+@click.argument("session_id", shell_complete=cli_completion.complete_session_ids)
 @click.option("--project-dir", default=".", help="Project directory")
 @click.option("--yes", "-y", is_flag=True, help="Skip confirmation")
 def delete_session(session_id: str, project_dir: str, yes: bool):
@@ -1760,7 +1760,7 @@ def delete_session(session_id: str, project_dir: str, yes: bool):
 
 
 @session.command("show")
-@click.argument("session_id")
+@click.argument("session_id", shell_complete=cli_completion.complete_session_ids)
 @click.option("--project-dir", default=".", help="Project directory")
 @click.option("--messages", "-m", is_flag=True, help="Show messages")
 def show_session(session_id: str, project_dir: str, messages: bool):

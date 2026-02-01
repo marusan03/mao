@@ -129,14 +129,60 @@ def complete_session_ids(ctx, param, incomplete):
         project_path = Path(project_dir).resolve()
 
         # セッション一覧を取得
-        session_manager = SessionManager(project_path=project_path)
-        sessions = session_manager.list_sessions()
+        temp_manager = SessionManager(project_path=project_path)
+        sessions = temp_manager.get_all_sessions()
 
-        return [
-            (session.session_id, f"Session: {session.created_at[:19]}")
-            for session in sessions
-            if incomplete in session.session_id
-        ]
+        candidates = []
+        for session_meta in sessions[:20]:  # 最新20件
+            session_id = session_meta.get("session_id", "")
+            title = session_meta.get("title", "")
+            message_count = session_meta.get("message_count", 0)
+
+            short_id = session_id[-12:] if len(session_id) > 12 else session_id
+
+            # タイトルまたはIDが入力途中の文字列にマッチするか
+            if incomplete in session_id or incomplete in short_id:
+                desc = title if title else f"{message_count} messages"
+                candidates.append((short_id, desc[:50]))
+
+        return candidates
+
+    except Exception:
+        return []
+
+
+def complete_improvement_ids(ctx, param, incomplete):
+    """プロジェクト改善IDの補完
+
+    Args:
+        ctx: Click context
+        param: Parameter
+        incomplete: 入力途中の文字列
+
+    Returns:
+        補完候補のリスト
+    """
+    try:
+        from mao.orchestrator.improvement_manager import ImprovementManager
+
+        project_dir = ctx.params.get("project_dir", ".")
+        project_path = Path(project_dir).resolve()
+
+        # 改善タスク一覧を取得
+        manager = ImprovementManager(project_path=project_path)
+        improvements = manager.list_improvements()
+
+        candidates = []
+        for imp in improvements:
+            short_id = imp.id[-12:]
+            full_id = imp.id
+
+            title_preview = imp.title[:40] + "..." if len(imp.title) > 40 else imp.title
+
+            if incomplete in short_id or incomplete in full_id:
+                candidates.append((short_id, f"{title_preview} [{imp.status}]"))
+
+        return candidates
 
     except Exception:
         return []
