@@ -233,6 +233,7 @@ class InteractiveDashboard(App):
         feedback_branch: Optional[str] = None,
         worktree_manager: Optional[Any] = None,
         session_id: Optional[str] = None,
+        session_title: Optional[str] = None,
     ):
         super().__init__()
         self.project_path = project_path
@@ -246,6 +247,7 @@ class InteractiveDashboard(App):
         self.feedback_branch = feedback_branch
         self.worktree_manager = worktree_manager
         self._provided_session_id = session_id
+        self._provided_session_title = session_title
 
         # ウィジェット参照
         self.header_widget: Optional[HeaderWidget] = None
@@ -282,9 +284,19 @@ class InteractiveDashboard(App):
             timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
             short_uuid = str(uuid.uuid4())[:8]
             new_session_id = f"{timestamp}_{short_uuid}"
+
+            # タイトルを決定（ユーザー指定 or initial_promptから生成）
+            session_title = self._provided_session_title
+            if not session_title and self.initial_prompt:
+                # initial_promptから簡潔なタイトルを生成（最初の50文字）
+                session_title = self.initial_prompt[:50]
+                if len(self.initial_prompt) > 50:
+                    session_title += "..."
+
             self.session_manager = SessionManager(
                 project_path=project_path,
-                session_id=new_session_id
+                session_id=new_session_id,
+                title=session_title
             )
 
         # フィードバック管理

@@ -41,16 +41,19 @@ class SessionManager:
         self,
         project_path: Optional[Path] = None,
         session_id: Optional[str] = None,
+        title: Optional[str] = None,
         logger: Optional[logging.Logger] = None,
     ):
         """
         Args:
             project_path: プロジェクトパス（.maoディレクトリの親）
             session_id: セッションID（Noneの場合は新規作成または最新セッションを使用）
+            title: セッションタイトル（新規作成時のみ有効）
             logger: ロガー
         """
         self.project_path = project_path or Path.cwd()
         self.logger = logger or logging.getLogger(__name__)
+        self._initial_title = title
 
         # セッションディレクトリ
         self.sessions_dir = self.project_path / ".mao" / "sessions"
@@ -80,6 +83,7 @@ class SessionManager:
         # セッションメタデータ
         self.metadata: Dict[str, Any] = {
             "session_id": self.session_id,
+            "title": self._initial_title or "",
             "created_at": datetime.utcnow().isoformat(),
             "updated_at": datetime.utcnow().isoformat(),
             "message_count": 0,
@@ -87,6 +91,11 @@ class SessionManager:
 
         # 既存セッションを読み込み
         self._load_session()
+
+        # 新規セッションの場合、タイトルが指定されていれば保存
+        if self._initial_title and not self.metadata.get("title"):
+            self.metadata["title"] = self._initial_title
+            self._save_session()
 
     def _generate_session_id(self) -> str:
         """セッションIDを生成
@@ -291,6 +300,7 @@ class SessionManager:
 
         return {
             "session_id": self.session_id,
+            "title": self.metadata.get("title", ""),
             "total_messages": len(self.messages),
             "user_messages": user_messages,
             "manager_messages": manager_messages,
@@ -298,6 +308,24 @@ class SessionManager:
             "created_at": self.metadata.get("created_at"),
             "updated_at": self.metadata.get("updated_at"),
         }
+
+    def set_title(self, title: str) -> None:
+        """セッションタイトルを設定
+
+        Args:
+            title: セッションタイトル
+        """
+        self.metadata["title"] = title
+        self._save_session()
+        self.logger.info(f"Updated session title: {title}")
+
+    def get_title(self) -> str:
+        """セッションタイトルを取得
+
+        Returns:
+            セッションタイトル
+        """
+        return self.metadata.get("title", "")
 
     def export_session(self, output_file: Path) -> bool:
         """セッションをエクスポート
