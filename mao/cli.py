@@ -169,9 +169,8 @@ def start(
 
     console.print(f"[dim]Config: {config.config_file}[/dim]")
 
-    # tmux設定
+    # tmux設定（常にグリッドレイアウト）
     tmux_manager = None
-    use_grid = grid or tmux_layout == "grid"
 
     if tmux:
         from mao.orchestrator.tmux_manager import TmuxManager
