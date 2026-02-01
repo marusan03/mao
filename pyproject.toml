@@ -99,15 +99,24 @@ select = [
     "PYI",    # flake8-pyi (type stub checks)
     "RET",    # flake8-return
     "ARG",    # flake8-unused-arguments
+    "TRY",    # tryceratops (exception handling)
+    "EM",     # flake8-errmsg (error messages)
+    "LOG",    # flake8-logging
 ]
 ignore = [
     "E501",   # line too long (handled by formatter)
     "SIM105", # use contextlib.suppress (sometimes explicit is better)
+    "TRY003", # long messages outside exception class (sometimes needed)
 ]
 
 # Enforce stricter type checking
 [tool.ruff.lint.flake8-type-checking]
 strict = true
+
+# Error handling rules
+[tool.ruff.lint.tryceratops]
+# Raise vanilla exception with wrong message
+raise-vanilla-args = true
 
 [tool.ruff.format]
 quote-style = "double"

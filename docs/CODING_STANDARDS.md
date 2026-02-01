@@ -349,6 +349,193 @@ mise run quality-fix
 - [Python Enum](https://docs.python.org/3/library/enum.html)
 - [Type Hints Cheat Sheet](https://mypy.readthedocs.io/en/stable/cheat_sheet_py3.html)
 
+## ⚠️ エラーハンドリング
+
+### ✅ 基本原則: try-except を使う
+
+```python
+# ✅ OK: 明示的にエラーハンドリング
+def load_config(path: str) -> Config:
+    """設定ファイルを読み込む"""
+    try:
+        with open(path) as f:
+            data = json.load(f)
+        return Config.model_validate(data)
+    except FileNotFoundError as e:
+        logger.error(f"Config file not found: {path}")
+        raise ConfigurationError(f"Missing config: {path}") from e
+    except json.JSONDecodeError as e:
+        logger.error(f"Invalid JSON in config: {path}")
+        raise ConfigurationError(f"Invalid config format: {path}") from e
+    except ValidationError as e:
+        logger.error(f"Config validation failed: {e}")
+        raise ConfigurationError(f"Invalid config data: {path}") from e
+```
+
+### ❌ 禁止: サイレントなフォールバック
+
+```python
+# ❌ NG: エラーを無視してデフォルト値
+def load_config(path: str) -> Config:
+    try:
+        with open(path) as f:
+            return Config.model_validate(json.load(f))
+    except Exception:
+        return Config()  # サイレントフォールバック - NG!
+
+# ❌ NG: エラーを握りつぶす
+def process_data(data: str) -> dict[str, Any]:
+    try:
+        return json.loads(data)
+    except Exception:
+        return {}  # エラー原因が不明
+```
+
+### ⚠️ やむを得ないフォールバック: 必ずログ出力
+
+```python
+import logging
+
+logger = logging.getLogger(__name__)
+
+# ✅ OK: フォールバックするが、必ずログに記録
+def get_cache_value(key: str) -> str | None:
+    """キャッシュから値を取得（フォールバック許容）"""
+    try:
+        return cache.get(key)
+    except ConnectionError as e:
+        # ⚠️ フォールバックする場合は必ずログ
+        logger.warning(
+            f"Cache connection failed, returning None: {e}",
+            exc_info=True,  # スタックトレースも記録
+        )
+        return None  # フォールバックだが、ログに記録済み
+    except Exception as e:
+        # 予期しないエラーは再送出
+        logger.error(f"Unexpected error in cache: {e}")
+        raise
+
+# ✅ OK: リトライ付きフォールバック（ログ必須）
+def fetch_with_fallback(url: str, fallback_url: str) -> Response:
+    """メインURLで失敗したらフォールバック"""
+    try:
+        return requests.get(url, timeout=5)
+    except requests.RequestException as e:
+        logger.warning(
+            f"Primary URL failed, trying fallback: {url} -> {fallback_url}",
+            extra={"error": str(e), "primary_url": url, "fallback_url": fallback_url},
+        )
+        try:
+            return requests.get(fallback_url, timeout=5)
+        except requests.RequestException as fallback_error:
+            logger.error(f"Fallback URL also failed: {fallback_url}")
+            raise FetchError(f"Both URLs failed: {url}, {fallback_url}") from fallback_error
+```
+
+### 🎯 エラーハンドリングのベストプラクティス
+
+#### 1. 具体的な例外をキャッチ
+
+```python
+# ✅ OK: 具体的な例外
+try:
+    value = int(user_input)
+except ValueError as e:
+    logger.error(f"Invalid integer: {user_input}")
+    raise ValidationError(f"Expected integer, got: {user_input}") from e
+
+# ❌ NG: 汎用的すぎる
+try:
+    value = int(user_input)
+except Exception:  # 何が起きたか不明
+    return 0
+```
+
+#### 2. エラーチェーンを保持
+
+```python
+# ✅ OK: from e でエラーチェーンを保持
+try:
+    data = load_data()
+except IOError as e:
+    raise DataLoadError("Failed to load data") from e
+
+# ❌ NG: 元のエラーが失われる
+try:
+    data = load_data()
+except IOError:
+    raise DataLoadError("Failed to load data")
+```
+
+#### 3. カスタム例外を定義
+
+```python
+# ✅ OK: 独自の例外クラス
+class ConfigurationError(Exception):
+    """設定関連のエラー"""
+    pass
+
+class ValidationError(Exception):
+    """検証エラー"""
+    pass
+
+def load_config(path: str) -> Config:
+    try:
+        # ...
+    except FileNotFoundError as e:
+        raise ConfigurationError(f"Config not found: {path}") from e
+```
+
+#### 4. ログレベルを適切に使う
+
+```python
+# ✅ OK: ログレベルの使い分け
+try:
+    result = risky_operation()
+except ExpectedError as e:
+    logger.warning(f"Expected error occurred: {e}")  # WARNING
+    # リトライなど
+except UnexpectedError as e:
+    logger.error(f"Unexpected error: {e}", exc_info=True)  # ERROR
+    raise
+except CriticalError as e:
+    logger.critical(f"Critical error: {e}", exc_info=True)  # CRITICAL
+    # システム停止など
+```
+
+### 📋 エラーハンドリングチェックリスト
+
+- [ ] try-except で明示的にハンドリング
+- [ ] 具体的な例外クラスをキャッチ（Exception は避ける）
+- [ ] エラーチェーンを保持（`from e`）
+- [ ] フォールバックする場合は必ずログ出力
+- [ ] ログレベルを適切に設定
+- [ ] カスタム例外クラスを定義
+- [ ] エラーメッセージに十分な情報を含める
+
+### 🚫 禁止パターン
+
+```python
+# ❌ NG: 空の except
+try:
+    risky_operation()
+except:  # bare except
+    pass
+
+# ❌ NG: Exception を握りつぶす
+try:
+    important_operation()
+except Exception:
+    pass  # 何が起きたか不明
+
+# ❌ NG: サイレントフォールバック（ログなし）
+def get_value(key: str) -> str:
+    try:
+        return cache[key]
+    except KeyError:
+        return "default"  # なぜデフォルトになったか不明
+```
+
 ## ✅ チェックリスト
 
 新しいコードを書く前に：
@@ -358,4 +545,6 @@ mise run quality-fix
 - [ ] dict を直接使っていない？（やむを得ない場合を除く）
 - [ ] ミュータブルなデフォルト引数を使っていない？（None パターン含む）
 - [ ] すべての関数に型アノテーションを付けた？
+- [ ] エラーハンドリングは try-except で明示的？
+- [ ] フォールバックする場合はログ出力している？
 - [ ] `mise run quality` でエラーなし？
