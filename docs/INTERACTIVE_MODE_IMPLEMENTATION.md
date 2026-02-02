@@ -101,27 +101,21 @@ Layout: 60% Left (Agents + Logs) | 40% Right (Manager Chat)
 
 **File:** `mao/cli.py`
 
-Added `--interactive` flag:
+CTO interactive mode is automatic when prompt is provided:
 
 ```bash
-# Start in interactive mode
-mao start --interactive "Implement authentication system"
-
-# Short form
-mao start -i "Task description"
+# Start with CTO interactive mode (automatic when prompt is provided)
+mao start "Implement authentication system"
 
 # With model selection
-mao start --interactive --model opus "Complex task"
+mao start --model opus "Complex task"
 ```
 
 Implementation:
 ```python
-@click.option(
-    "--interactive/--no-interactive",
-    default=False,
-    help="Enable interactive mode with manager chat"
-)
-def start(..., interactive: bool):
+# Interactive mode (CTO chat) is automatically enabled when prompt is provided
+# No --interactive flag needed
+def start(..., prompt: str):
     if interactive:
         from mao.ui.dashboard_interactive import InteractiveDashboard as Dashboard
     else:
@@ -183,8 +177,8 @@ def start(..., interactive: bool):
    ```
 
 2. **mao/cli.py**
-   - Added `--interactive` flag
-   - Conditional dashboard import
+   - CTO interactive mode automatically enabled with prompt
+   - Dashboard with CTO chat panel
 
 ---
 
@@ -216,10 +210,10 @@ All imports verified:
 
 ## Usage Examples
 
-### 1. Start Interactive Mode
+### 1. Start CTO Interactive Mode
 
 ```bash
-mao start --interactive "認証システムを実装"
+mao start "認証システムを実装"
 ```
 
 ### 2. Chat with Manager
@@ -349,11 +343,12 @@ Comprehensive documentation created:
 
 ## Conclusion
 
-Interactive mode is fully functional and ready for use. Users can now:
-1. Start MAO with `--interactive` flag
-2. Chat with manager agent in real-time
+CTO interactive mode is fully functional and ready for use. Users can now:
+1. Start MAO with task prompt (CTO mode automatic)
+2. Chat with CTO agent in real-time
 3. Get task planning and technical advice
-4. Monitor agents while directing the manager
+4. Monitor workers while directing the CTO
+5. CTO automatically assigns tasks to appropriate MAO roles
 
 This brings MAO closer to the multi-agent-shogun vision while maintaining MAO's unique strengths: hierarchical architecture, Claude-native execution, and rich TUI dashboard.
 
@@ -362,7 +357,7 @@ This brings MAO closer to the multi-agent-shogun vision while maintaining MAO's 
 **Next Steps for Users:**
 ```bash
 # Try it out!
-mao start --interactive "Build a REST API with authentication"
+mao start "Build a REST API with authentication"
 ```
 
 Press `Ctrl+M` to start chatting with the manager!

@@ -101,11 +101,14 @@ mao start --model <TAB>
 
 ```bash
 mao start --<TAB>
-# → --role
-# → --model
-# → --interactive
-# → --auto-approve
-# → --max-workers
+# → --role        (初期タスクのロール)
+# → --model       (使用するモデル)
+# → --tmux        (tmux有効化)
+# → --no-tmux     (tmux無効化)
+# → --redis-url   (Redis URL)
+# → --no-redis    (SQLite使用)
+# → --session     (セッション継続)
+# → --new-session (新規セッション作成)
 ```
 
 ## 🔧 高度な使用法

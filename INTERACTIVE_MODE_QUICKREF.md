@@ -1,10 +1,10 @@
-# Interactive Mode Quick Reference
+# CTO Interactive Mode Quick Reference
 
-## Start Interactive Mode
+## Start CTO Interactive Mode
 
 ```bash
-mao start --interactive "Task description"
-mao start -i "Task description"             # Short form
+mao start "Task description"
+# CTO interactive mode is automatically enabled
 ```
 
 ## Keyboard Shortcuts
@@ -21,8 +21,21 @@ mao start -i "Task description"             # Short form
 ## Chat Message Types
 
 - 💬 **You** (Cyan): Your messages
-- 🤖 **Manager** (Green): Manager responses
+- 🤖 **CTO** (Green): CTO responses
 - ℹ️ **System** (Yellow): Status notifications
+
+## MAO Roles (CTO automatically assigns)
+
+| ロール | 用途 |
+|--------|------|
+| coder_backend | バックエンド実装 |
+| reviewer | コードレビュー |
+| tester | テスト作成・実行 |
+| planner | タスク計画・設計 |
+| researcher | 技術調査 |
+| auditor | セキュリティ監査 |
+| skill_extractor | スキル抽出 |
+| skill_reviewer | スキルレビュー |
 
 ## Common Tasks
 
@@ -38,7 +51,8 @@ You: どの認証方式を推奨しますか？
 
 ### Request Implementation
 ```
-You: worker-1にログイン機能を実装させてください
+You: ログイン機能を実装してください
+# CTOが自動的に適切なMAOロール（coder_backend等）にタスクを割り当て
 ```
 
 ### Check Status
@@ -67,8 +81,8 @@ You: 現在の進捗を教えてください
 
 ❌ **DON'T:**
 - Send vague requests like "これやって"
-- Expect automatic task distribution (not yet implemented)
-- Try to run multiple managers simultaneously
+- Manually specify worker IDs (CTO handles assignment)
+- Try to run multiple CTO sessions simultaneously
 
 ## See Also
 

@@ -79,7 +79,7 @@ tmux -V
 
 1. **ダッシュボード起動**
 ```bash
-mao start --interactive "簡単なPythonスクリプトを作成してテストする"
+mao start "簡単なPythonスクリプトを作成してテストする"
 ```
 
 2. **CTOの応答を確認**
