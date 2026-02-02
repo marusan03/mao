@@ -1,0 +1,186 @@
+name: mao-complete
+display_name: "✅ Report Completion to MAO"
+description: |
+  Report task completion to MAO's ApprovalQueue.
+
+  This adds the completed work to the approval queue for CTO review.
+
+  Usage:
+    /mao-complete --summary "Implemented user authentication API"
+    /mao-complete --summary "Tests completed" --files-changed "test_auth.py,test_user.py"
+
+category: mao-integration
+version: "1.0.0"
+
+parameters:
+  - name: summary
+    description: Brief summary of what was accomplished
+    required: true
+    type: string
+
+  - name: files-changed
+    description: Comma-separated list of changed files
+    required: false
+    type: string
+
+  - name: agent-id
+    description: Agent ID (uses $MAO_AGENT_ID if not provided)
+    required: false
+    type: string
+
+script: |
+  #!/usr/bin/env python3
+  import os
+  import sys
+  import json
+  from pathlib import Path
+  from datetime import datetime
+  import uuid
+  import tempfile
+  import time
+
+  # Get parameters
+  summary = os.environ.get('SUMMARY', '')
+  files_changed = os.environ.get('FILES_CHANGED', '')
+  agent_id = os.environ.get('AGENT_ID') or os.environ.get('MAO_AGENT_ID', 'task-agent')
+
+  if not summary:
+      print("Error: summary is required", file=sys.stderr)
+      sys.exit(1)
+
+  # Find project root
+  project_path = Path.cwd()
+  while project_path != project_path.parent:
+      if (project_path / '.mao').exists():
+          break
+      project_path = project_path.parent
+
+  mao_dir = project_path / '.mao'
+  queue_dir = mao_dir / 'approval_queue'
+  queue_dir.mkdir(parents=True, exist_ok=True)
+
+  # Create approval item
+  item_id = str(uuid.uuid4())[:8]
+  item = {
+      'id': item_id,
+      'agent_id': agent_id,
+      'task_description': summary,
+      'status': 'pending',
+      'created_at': datetime.utcnow().isoformat(),
+      'changed_files': files_changed.split(',') if files_changed else [],
+      'output': summary
+  }
+
+  # Save to queue
+  item_file = queue_dir / f"{item_id}.json"
+  with open(item_file, 'w', encoding='utf-8') as f:
+      json.dump(item, f, indent=2, ensure_ascii=False)
+
+  # Update index with file locking and atomic write to prevent Lost Update problem
+  # Try to import fcntl for POSIX systems (macOS, Linux)
+  try:
+      import fcntl
+      has_fcntl = True
+  except ImportError:
+      has_fcntl = False
+
+  index_file = queue_dir / 'index.json'
+
+  # Create lock file for synchronization
+  lock_file = queue_dir / '.index.lock'
+  lock_fd = os.open(str(lock_file), os.O_CREAT | os.O_RDWR)
+
+  try:
+      if has_fcntl:
+          # Acquire exclusive lock (blocks until available)
+          fcntl.flock(lock_fd, fcntl.LOCK_EX)
+
+      tmp_fd, tmp_path = tempfile.mkstemp(dir=queue_dir, suffix='.tmp', text=True)
+      try:
+          # Read existing data
+          if index_file.exists():
+              with open(index_file, 'r', encoding='utf-8') as f:
+                  index = json.load(f)
+          else:
+              index = {'items': []}
+
+          # Add new item
+          index['items'].append({
+              'id': item_id,
+              'agent_id': agent_id,
+              'status': 'pending',
+              'created_at': item['created_at']
+          })
+
+          # Write to temp file
+          with os.fdopen(tmp_fd, 'w', encoding='utf-8') as tmp_file:
+              json.dump(index, tmp_file, indent=2, ensure_ascii=False)
+
+          # Atomic replace (POSIX-compliant)
+          os.replace(tmp_path, str(index_file))
+
+      except Exception as e:
+          # Clean up temp file on error
+          try:
+              os.unlink(tmp_path)
+          except:
+              pass
+          raise
+
+  finally:
+      if has_fcntl:
+          # Release lock
+          fcntl.flock(lock_fd, fcntl.LOCK_UN)
+      os.close(lock_fd)
+
+  print(f"✅ Task completed and added to approval queue")
+  print(f"📋 Summary: {summary}")
+  print(f"🆔 Approval ID: {item_id}")
+  if files_changed:
+      print(f"📁 Files changed: {files_changed}")
+
+  # Update status to COMPLETED with retry logic
+  import sqlite3
+  db_path = mao_dir / 'agent_states.db'
+  if db_path.exists():
+      MAX_RETRIES = 3
+      retry_count = 0
+
+      while retry_count < MAX_RETRIES:
+          try:
+              # 30-second timeout to prevent SQLITE_BUSY errors
+              conn = sqlite3.connect(str(db_path), timeout=30.0)
+              try:
+                  # Enable WAL mode for better concurrency
+                  conn.execute("PRAGMA journal_mode=WAL")
+
+                  conn.execute("""
+                      UPDATE agent_states
+                      SET status = 'COMPLETED', current_task = ?, last_updated = ?
+                      WHERE agent_id = ?
+                  """, (summary[:100], datetime.utcnow().isoformat(), agent_id))
+                  conn.commit()
+                  break  # Success - exit retry loop
+              finally:
+                  conn.close()
+
+          except sqlite3.OperationalError as e:
+              if "database is locked" in str(e) and retry_count < MAX_RETRIES - 1:
+                  retry_count += 1
+                  wait_time = 0.1 * (2 ** retry_count)  # Exponential backoff
+                  print(f"⚠️  Database locked, retrying in {wait_time}s... ({retry_count}/{MAX_RETRIES})", file=sys.stderr)
+                  time.sleep(wait_time)
+              else:
+                  print(f"❌ SQLite error: {e}", file=sys.stderr)
+                  raise
+
+requires_approval: false
+risk_level: medium
+
+metadata:
+  author: MAO System
+  tags:
+    - mao
+    - integration
+    - completion
+    - approval

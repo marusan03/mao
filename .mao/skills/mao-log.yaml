@@ -1,0 +1,108 @@
+name: mao-log
+display_name: "📝 Log to MAO"
+description: |
+  Send a log message to MAO's logging system.
+
+  The log will appear in the MAO dashboard's log viewer.
+
+  Usage:
+    /mao-log --message "Started processing data" --level INFO
+    /mao-log --message "Error occurred" --level ERROR
+
+category: mao-integration
+version: "1.0.0"
+
+parameters:
+  - name: message
+    description: Log message to send
+    required: true
+    type: string
+
+  - name: level
+    description: Log level
+    required: false
+    default: "INFO"
+    type: string
+    choices:
+      - DEBUG
+      - INFO
+      - WARN
+      - ERROR
+
+  - name: agent-id
+    description: Agent ID (uses $MAO_AGENT_ID if not provided)
+    required: false
+    type: string
+
+script: |
+  #!/usr/bin/env python3
+  import os
+  import sys
+  from pathlib import Path
+  from datetime import datetime
+
+  # Get parameters
+  message = os.environ.get('MESSAGE', '')
+  level = os.environ.get('LEVEL', 'INFO')
+  agent_id = os.environ.get('AGENT_ID') or os.environ.get('MAO_AGENT_ID', 'task-agent')
+
+  if not message:
+      print("Error: message is required", file=sys.stderr)
+      sys.exit(1)
+
+  # Find project root
+  project_path = Path.cwd()
+  while project_path != project_path.parent:
+      if (project_path / '.mao').exists():
+          break
+      project_path = project_path.parent
+
+  mao_dir = project_path / '.mao'
+  logs_dir = mao_dir / 'logs'
+  logs_dir.mkdir(parents=True, exist_ok=True)
+
+  # Write to agent-specific log file with file locking
+  log_file = logs_dir / f"{agent_id}.log"
+  timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+  log_line = f"[{timestamp}] [{level}] {message}\n"
+
+  # Try to import fcntl for POSIX systems (macOS, Linux)
+  try:
+      import fcntl
+      has_fcntl = True
+  except ImportError:
+      has_fcntl = False
+
+  with open(log_file, 'a', encoding='utf-8') as f:
+      if has_fcntl:
+          # Acquire exclusive lock (POSIX systems)
+          fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+          try:
+              f.write(log_line)
+          finally:
+              # Release lock
+              fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+      else:
+          # Fallback for Windows or systems without fcntl
+          # Note: File locking is not available, but parallel writes are rare
+          f.write(log_line)
+
+  # Also print to stdout
+  level_emoji = {
+      'DEBUG': '🔍',
+      'INFO': 'ℹ️',
+      'WARN': '⚠️',
+      'ERROR': '❌'
+  }.get(level, '📝')
+
+  print(f"{level_emoji} [{level}] {message}")
+
+requires_approval: false
+risk_level: low
+
+metadata:
+  author: MAO System
+  tags:
+    - mao
+    - integration
+    - logging

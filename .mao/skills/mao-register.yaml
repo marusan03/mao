@@ -1,0 +1,128 @@
+name: mao-register
+display_name: "📝 Register with MAO"
+description: |
+  Register this Task agent with MAO's StateManager.
+
+  This allows the agent to appear in the MAO dashboard and have its status tracked.
+
+  Usage:
+    /mao-register --agent-id my-agent --role researcher
+
+category: mao-integration
+version: "1.0.0"
+
+parameters:
+  - name: agent-id
+    description: Unique identifier for this agent (auto-generated if not provided)
+    required: false
+    type: string
+
+  - name: role
+    description: MAO role (researcher, coder_backend, tester, etc.)
+    required: true
+    type: string
+    choices:
+      - researcher
+      - coder_backend
+      - coder_frontend
+      - tester
+      - reviewer
+      - planner
+      - auditor
+      - skill_extractor
+      - skill_reviewer
+      - general
+
+  - name: task
+    description: Brief description of what this agent is doing
+    required: false
+    type: string
+
+script: |
+  #!/usr/bin/env python3
+  import os
+  import sys
+  import sqlite3
+  from pathlib import Path
+  from datetime import datetime
+  import uuid
+  import time
+
+  # Get parameters
+  agent_id = os.environ.get('AGENT_ID', f"task-agent-{str(uuid.uuid4())[:8]}")
+  role = os.environ.get('ROLE', 'general')
+  task = os.environ.get('TASK', 'Working on task...')
+
+  # Find project root (.mao directory)
+  project_path = Path.cwd()
+  while project_path != project_path.parent:
+      if (project_path / '.mao').exists():
+          break
+      project_path = project_path.parent
+
+  mao_dir = project_path / '.mao'
+  db_path = mao_dir / 'agent_states.db'
+
+  if not db_path.exists():
+      print(f"Error: MAO database not found at {db_path}", file=sys.stderr)
+      sys.exit(1)
+
+  # Register with StateManager with retry logic
+  MAX_RETRIES = 3
+  retry_count = 0
+
+  while retry_count < MAX_RETRIES:
+      try:
+          # 30-second timeout to prevent SQLITE_BUSY errors
+          conn = sqlite3.connect(str(db_path), timeout=30.0)
+          try:
+              # Enable WAL mode for better concurrency
+              conn.execute("PRAGMA journal_mode=WAL")
+
+              conn.execute("""
+                  INSERT OR REPLACE INTO agent_states (
+                      agent_id, role, status, current_task,
+                      tokens_used, cost, last_updated, error_message, worktree_path
+                  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+              """, (
+                  agent_id,
+                  role,
+                  'ACTIVE',
+                  task[:100],
+                  0,
+                  0.0,
+                  datetime.utcnow().isoformat(),
+                  None,
+                  None
+              ))
+              conn.commit()
+
+              print(f"✅ Registered as {agent_id} ({role})")
+              print(f"📋 Task: {task[:50]}...")
+
+              # Export agent_id for other skills to use
+              print(f"\nexport MAO_AGENT_ID={agent_id}")
+              break  # Success - exit retry loop
+
+          finally:
+              conn.close()
+
+      except sqlite3.OperationalError as e:
+          if "database is locked" in str(e) and retry_count < MAX_RETRIES - 1:
+              retry_count += 1
+              wait_time = 0.1 * (2 ** retry_count)  # Exponential backoff
+              print(f"⚠️  Database locked, retrying in {wait_time}s... ({retry_count}/{MAX_RETRIES})", file=sys.stderr)
+              time.sleep(wait_time)
+          else:
+              print(f"❌ SQLite error: {e}", file=sys.stderr)
+              raise
+
+requires_approval: false
+risk_level: low
+
+metadata:
+  author: MAO System
+  tags:
+    - mao
+    - integration
+    - registration

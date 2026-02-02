@@ -1,0 +1,135 @@
+name: mao-update-status
+display_name: "🔄 Update Status in MAO"
+description: |
+  Update this agent's status in MAO's StateManager.
+
+  This updates the dashboard to show current progress.
+
+  Usage:
+    /mao-update-status --status THINKING --task "Analyzing code..."
+    /mao-update-status --status ACTIVE --task "Writing tests"
+    /mao-update-status --status COMPLETED
+
+category: mao-integration
+version: "1.0.0"
+
+parameters:
+  - name: status
+    description: Agent status
+    required: true
+    type: string
+    choices:
+      - IDLE
+      - ACTIVE
+      - THINKING
+      - WAITING
+      - ERROR
+      - COMPLETED
+
+  - name: task
+    description: Current task description
+    required: false
+    type: string
+
+  - name: agent-id
+    description: Agent ID (uses $MAO_AGENT_ID if not provided)
+    required: false
+    type: string
+
+  - name: error-message
+    description: Error message (if status is ERROR)
+    required: false
+    type: string
+
+script: |
+  #!/usr/bin/env python3
+  import os
+  import sys
+  import sqlite3
+  from pathlib import Path
+  from datetime import datetime
+  import time
+
+  # Get parameters
+  status = os.environ.get('STATUS', 'ACTIVE')
+  task = os.environ.get('TASK', '')
+  agent_id = os.environ.get('AGENT_ID') or os.environ.get('MAO_AGENT_ID', 'task-agent')
+  error_message = os.environ.get('ERROR_MESSAGE')
+
+  # Find project root
+  project_path = Path.cwd()
+  while project_path != project_path.parent:
+      if (project_path / '.mao').exists():
+          break
+      project_path = project_path.parent
+
+  mao_dir = project_path / '.mao'
+  db_path = mao_dir / 'agent_states.db'
+
+  if not db_path.exists():
+      print(f"Error: MAO database not found at {db_path}", file=sys.stderr)
+      sys.exit(1)
+
+  # Update StateManager with retry logic
+  MAX_RETRIES = 3
+  retry_count = 0
+
+  while retry_count < MAX_RETRIES:
+      try:
+          # 30-second timeout to prevent SQLITE_BUSY errors
+          conn = sqlite3.connect(str(db_path), timeout=30.0)
+          try:
+              # Enable WAL mode for better concurrency
+              conn.execute("PRAGMA journal_mode=WAL")
+
+              if task:
+                  conn.execute("""
+                      UPDATE agent_states
+                      SET status = ?, current_task = ?, last_updated = ?, error_message = ?
+                      WHERE agent_id = ?
+                  """, (status, task[:100], datetime.utcnow().isoformat(), error_message, agent_id))
+              else:
+                  conn.execute("""
+                      UPDATE agent_states
+                      SET status = ?, last_updated = ?, error_message = ?
+                      WHERE agent_id = ?
+                  """, (status, datetime.utcnow().isoformat(), error_message, agent_id))
+
+              conn.commit()
+
+              status_emoji = {
+                  'IDLE': '💤',
+                  'ACTIVE': '⚡',
+                  'THINKING': '🤔',
+                  'WAITING': '⏳',
+                  'ERROR': '❌',
+                  'COMPLETED': '✅'
+              }.get(status, '📝')
+
+              print(f"{status_emoji} Status updated: {status}")
+              if task:
+                  print(f"📋 Task: {task[:50]}...")
+              break  # Success - exit retry loop
+
+          finally:
+              conn.close()
+
+      except sqlite3.OperationalError as e:
+          if "database is locked" in str(e) and retry_count < MAX_RETRIES - 1:
+              retry_count += 1
+              wait_time = 0.1 * (2 ** retry_count)  # Exponential backoff
+              print(f"⚠️  Database locked, retrying in {wait_time}s... ({retry_count}/{MAX_RETRIES})", file=sys.stderr)
+              time.sleep(wait_time)
+          else:
+              print(f"❌ SQLite error: {e}", file=sys.stderr)
+              raise
+
+requires_approval: false
+risk_level: low
+
+metadata:
+  author: MAO System
+  tags:
+    - mao
+    - integration
+    - status
