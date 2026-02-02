@@ -1,5 +1,5 @@
 """
-Approval Queue - CTOによるワーカー作業承認管理
+Approval Queue - CTOによるエージェント作業承認管理
 """
 import json
 import uuid
@@ -23,7 +23,7 @@ class ApprovalStatus(Enum):
 class ApprovalItem:
     """承認待ちアイテム"""
     id: str
-    worker_id: str
+    agent_id: str
     task_number: int
     task_description: str
     role: str
@@ -48,6 +48,10 @@ class ApprovalItem:
     @classmethod
     def from_dict(cls, data: dict) -> "ApprovalItem":
         """辞書から作成"""
+        # 後方互換性: worker_id が存在する場合は agent_id に変換
+        if 'worker_id' in data and 'agent_id' not in data:
+            data['agent_id'] = data.pop('worker_id')
+
         if 'worktree' in data and data['worktree']:
             data['worktree'] = Path(data['worktree'])
         return cls(**data)
@@ -104,7 +108,7 @@ class ApprovalQueue:
 
     def add_item(
         self,
-        worker_id: str,
+        agent_id: str,
         task_number: int,
         task_description: str,
         role: str,
@@ -118,7 +122,7 @@ class ApprovalQueue:
         """承認アイテムを追加
 
         Args:
-            worker_id: ワーカーID
+            agent_id: エージェントID
             task_number: タスク番号
             task_description: タスク説明
             role: MAOロール名
@@ -127,7 +131,7 @@ class ApprovalQueue:
             worktree: worktreeパス
             branch: ブランチ名
             changed_files: 変更ファイルリスト
-            output: ワーカーの出力
+            output: エージェントの出力
 
         Returns:
             作成された承認アイテム
@@ -137,7 +141,7 @@ class ApprovalQueue:
 
         item = ApprovalItem(
             id=item_id,
-            worker_id=worker_id,
+            agent_id=agent_id,
             task_number=task_number,
             task_description=task_description,
             role=role,
@@ -154,7 +158,7 @@ class ApprovalQueue:
         self.items.append(item)
         self._save_index()
 
-        self.logger.info(f"Added approval item: {item_id} for {worker_id}")
+        self.logger.info(f"Added approval item: {item_id} for {agent_id}")
         return item
 
     def get_item(self, item_id: str) -> Optional[ApprovalItem]:

@@ -260,11 +260,11 @@ class WorktreeManager:
     def create_worker_worktree(
         self, parent_branch: str, worker_id: str
     ) -> Optional[Path]:
-        """ワーカー用のworktreeを作成
+        """エージェント用のworktreeを作成（後方互換性のため関数名はそのまま）
 
         Args:
             parent_branch: 親ブランチ名（feedbackブランチ）
-            worker_id: ワーカーID
+            worker_id: エージェントID（agent_idとして扱う）
 
         Returns:
             作成されたworktreeのパス、失敗時はNone
@@ -272,15 +272,16 @@ class WorktreeManager:
         if not self.is_git_repository():
             return None
 
-        worker_branch = f"{parent_branch}-{worker_id}"
+        agent_id = worker_id  # エイリアス
+        agent_branch = f"{parent_branch}-{agent_id}"
         timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-        worktree_name = f"worker-{worker_id}-{timestamp}"
+        worktree_name = f"agent-{agent_id}-{timestamp}"
         worktree_path = self.worktrees_dir / worktree_name
 
         try:
             # 親ブランチから新規ブランチを作成してworktreeを追加
             result = subprocess.run(
-                ["git", "worktree", "add", "-b", worker_branch, str(worktree_path), parent_branch],
+                ["git", "worktree", "add", "-b", agent_branch, str(worktree_path), parent_branch],
                 cwd=self.project_path,
                 capture_output=True,
                 text=True,
@@ -288,7 +289,7 @@ class WorktreeManager:
             )
 
             if result.returncode == 0:
-                self.logger.info(f"Created worker worktree: {worktree_path}")
+                self.logger.info(f"Created agent worktree: {worktree_path}")
                 return worktree_path
             else:
                 self.logger.error(f"Failed to create worker worktree: {result.stderr}")

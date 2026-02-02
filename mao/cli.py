@@ -16,6 +16,23 @@ from mao import cli_completion
 console = Console()
 
 
+def _is_dev_mode() -> bool:
+    """Check if running in development mode
+
+    Returns:
+        True if running from MAO source repository
+    """
+    current_file = Path(__file__).resolve()
+
+    # Check if we're in the MAO source repository
+    if (current_file.parent.parent / "pyproject.toml").exists():
+        dev_repo_path = current_file.parent.parent
+        if (dev_repo_path / ".git").exists():
+            return True
+
+    return False
+
+
 def show_version_info():
     """Display detailed version information"""
     from rich.table import Table
@@ -31,14 +48,7 @@ def show_version_info():
     table.add_row("Version", __version__)
 
     # 開発モードの検出
-    current_file = Path(__file__).resolve()
-    dev_mode = False
-    dev_repo_path = None
-
-    if (current_file.parent.parent / "pyproject.toml").exists():
-        dev_repo_path = current_file.parent.parent
-        if (dev_repo_path / ".git").exists():
-            dev_mode = True
+    dev_mode = _is_dev_mode()
 
     # モード表示
     if dev_mode:
@@ -319,7 +329,7 @@ def start(
                 use_grid_layout=True,
                 grid_width=grid_config.width,
                 grid_height=grid_config.height,
-                num_workers=grid_config.num_workers,
+                num_agents=grid_config.num_agents,
             )
         else:
             # デフォルト値を使用（常にグリッドレイアウト）
@@ -331,7 +341,7 @@ def start(
         else:
             if tmux_manager.create_session():
                 console.print(f"\n[green]✓ Grid Layout[/green]")
-                console.print(f"  📋 Manager + 🔧 {tmux_manager.num_workers} Workers")
+                console.print(f"  📋 Manager + 🔧 {tmux_manager.num_agents} Agents")
                 console.print(f"  [cyan]tmux attach -t mao[/cyan] でエージェントを確認")
             else:
                 tmux_manager = None
@@ -1168,10 +1178,21 @@ def improve_project(
     console.print("[dim]詳細は次のコミットで追加されます[/dim]")
 
 
-@main.group()
-def feedback():
+@main.group(invoke_without_command=True)
+@click.pass_context
+def feedback(ctx):
     """Manage feedback for MAO improvements (can create from any project, improve only on MAO)"""
-    pass
+    # 開発モードでのみ実行可能
+    if not _is_dev_mode():
+        console.print("[bold red]✗ The 'mao feedback' command is only available in development mode[/bold red]")
+        console.print("[dim]This command is for MAO developers to collect and process feedback.[/dim]")
+        console.print("[dim]If you want to report an issue, please visit: https://github.com/your-org/mao/issues[/dim]")
+        sys.exit(1)
+
+    # サブコマンドがない場合はヘルプを表示
+    if ctx.invoked_subcommand is None:
+        click.echo(ctx.get_help())
+        ctx.exit()
 
 
 @feedback.command("send")

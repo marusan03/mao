@@ -139,7 +139,7 @@ class UnifiedApprovalPanel(Static):
         self.skill_proposals = []
         self.audit_requests = []
         self.plan_approvals = []
-        self.worker_approvals = []  # ワーカータスク承認
+        self.agent_approvals = []  # エージェントタスク承認
 
     def add_skill_proposal(self, proposal: Dict[str, Any]):
         """Skill提案を追加"""
@@ -156,22 +156,22 @@ class UnifiedApprovalPanel(Static):
         self.plan_approvals.append(plan)
         self.refresh_display()
 
-    def add_worker_approval(self, worker_task: Dict[str, Any]):
-        """ワーカータスク承認を追加"""
-        self.worker_approvals.append(worker_task)
+    def add_agent_approval(self, agent_task: Dict[str, Any]):
+        """エージェントタスク承認を追加"""
+        self.agent_approvals.append(agent_task)
         self.refresh_display()
 
-    def remove_worker_approval(self, item_id: str):
-        """ワーカータスク承認を削除"""
-        self.worker_approvals = [
-            w for w in self.worker_approvals if w.get("id") != item_id
+    def remove_agent_approval(self, item_id: str):
+        """エージェントタスク承認を削除"""
+        self.agent_approvals = [
+            w for w in self.agent_approvals if w.get("id") != item_id
         ]
         self.refresh_display()
 
     def get_total_pending(self) -> int:
         """承認待ち総数"""
         return (len(self.skill_proposals) + len(self.audit_requests) +
-                len(self.plan_approvals) + len(self.worker_approvals))
+                len(self.plan_approvals) + len(self.agent_approvals))
 
     def refresh_display(self):
         """表示を更新"""
@@ -219,19 +219,19 @@ class UnifiedApprovalPanel(Static):
                     lines.append(f"  [dim]他 {len(self.plan_approvals) - 2}件...[/dim]")
                 lines.append("")
 
-            # ワーカータスク承認
-            if self.worker_approvals:
-                lines.append(f"[green]👷 ワーカー完了: {len(self.worker_approvals)}件[/green]")
-                for worker_task in self.worker_approvals[:3]:
-                    worker_id = worker_task.get('worker_id', 'Unknown')
-                    role = worker_task.get('role', 'Unknown')
-                    task_desc = worker_task.get('task_description', 'Unknown task')[:40]
-                    changed_files = worker_task.get('changed_files', [])
+            # エージェントタスク承認
+            if self.agent_approvals:
+                lines.append(f"[green]👷 エージェント完了: {len(self.agent_approvals)}件[/green]")
+                for agent_task in self.agent_approvals[:3]:
+                    agent_id = agent_task.get('agent_id', 'Unknown')
+                    role = agent_task.get('role', 'Unknown')
+                    task_desc = agent_task.get('task_description', 'Unknown task')[:40]
+                    changed_files = agent_task.get('changed_files', [])
                     file_count = len(changed_files) if changed_files else 0
-                    lines.append(f"  ✓ {worker_id} ({role}): {task_desc}... ({file_count}ファイル変更)")
+                    lines.append(f"  ✓ {agent_id} ({role}): {task_desc}... ({file_count}ファイル変更)")
 
-                if len(self.worker_approvals) > 3:
-                    lines.append(f"  [dim]他 {len(self.worker_approvals) - 3}件...[/dim]")
+                if len(self.agent_approvals) > 3:
+                    lines.append(f"  [dim]他 {len(self.agent_approvals) - 3}件...[/dim]")
                 lines.append("")
 
             lines.append("[dim]/approve <id> で承認 / /reject <id> で却下 / /diff <id> で差分表示[/dim]")

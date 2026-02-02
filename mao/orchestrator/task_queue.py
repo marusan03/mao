@@ -2,9 +2,9 @@
 YAML-based task queue for inter-agent communication
 
 Based on the pattern from multi-agent-shogun:
-- Manager writes tasks to queue/tasks/<worker-id>.yaml
-- Workers poll for their task file
-- Workers write results to queue/results/<worker-id>.yaml
+- Manager writes tasks to queue/tasks/<agent-id>.yaml
+- Agents poll for their task file
+- Agents write results to queue/results/<agent-id>.yaml
 """
 import yaml
 import time
@@ -28,7 +28,7 @@ class TaskStatus(str, Enum):
 class Task:
     """タスク定義"""
     task_id: str
-    role: str  # 担当するロール（worker-1, worker-2, etc.）
+    role: str  # 担当するロール（agent-1, agent-2, etc.）
     prompt: str  # claude-codeに渡すプロンプト
     model: str = "sonnet"
     status: TaskStatus = TaskStatus.PENDING
@@ -80,7 +80,7 @@ class TaskQueue:
         self.results_dir.mkdir(parents=True, exist_ok=True)
 
     def assign_task(self, task: Task) -> bool:
-        """タスクをワーカーに割り当て
+        """タスクをエージェントに割り当て
 
         Args:
             task: 割り当てるタスク
@@ -113,10 +113,10 @@ class TaskQueue:
             return False
 
     def get_task(self, role: str) -> Optional[Task]:
-        """ワーカー用：自分のタスクを取得
+        """エージェント用：自分のタスクを取得
 
         Args:
-            role: ロール名（worker-1, worker-2, etc.）
+            role: ロール名（agent-1, agent-2, etc.）
 
         Returns:
             タスク、なければNone

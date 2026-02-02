@@ -53,7 +53,7 @@ class TmuxGridConfig(BaseModel):
     """Tmux grid layout configuration"""
     width: int = 240
     height: int = 60
-    num_workers: int = 8
+    num_agents: int = 8
     default_layout: str = "tiled"
 
 

@@ -38,8 +38,8 @@ class Message:
 
     message_id: str
     message_type: MessageType
-    sender: str  # worker-1, manager, etc.
-    receiver: str  # manager, worker-1, etc.
+    sender: str  # agent-1, manager, etc.
+    receiver: str  # manager, agent-1, etc.
     content: str
     priority: MessagePriority = MessagePriority.MEDIUM
     timestamp: str = ""

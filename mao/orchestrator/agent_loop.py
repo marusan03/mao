@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Worker loop script that runs inside tmux panes
+Agent loop script that runs inside tmux panes
 
 This script:
 1. Polls for task YAML file in .mao/queue/tasks/<role>.yaml
@@ -10,7 +10,7 @@ This script:
 5. Loops back to step 1
 
 Usage:
-    python worker_loop.py --role worker-1 --project-path /path/to/project --model sonnet
+    python agent_loop.py --role agent-1 --project-path /path/to/project --model sonnet
 """
 import argparse
 import sys
@@ -93,17 +93,17 @@ def execute_claude_code(
         return False, "", str(e)
 
 
-def worker_loop(
+def agent_loop(
     role: str,
     project_path: Path,
     model: str = "sonnet",
     poll_interval: float = 2.0,
     allow_unsafe: bool = False,
 ) -> None:
-    """Worker main loop
+    """Agent main loop
 
     Args:
-        role: Worker role (worker-1, worker-2, etc.)
+        role: Agent role (agent-1, agent-2, etc.)
         project_path: Project root path
         model: Claude model to use
         poll_interval: Polling interval in seconds
@@ -112,7 +112,7 @@ def worker_loop(
     queue = TaskQueue(project_path)
     work_dir = project_path
 
-    print(f"🤖 Worker {role} started")
+    print(f"🤖 Agent {role} started")
     print(f"📁 Project: {project_path}")
     print(f"🔧 Model: {model}")
     print(f"⏱️  Poll interval: {poll_interval}s")
@@ -182,10 +182,10 @@ def worker_loop(
                 time.sleep(poll_interval)
 
         except KeyboardInterrupt:
-            print(f"\n\n👋 Worker {role} shutting down...")
+            print(f"\n\n👋 Agent {role} shutting down...")
             break
         except Exception as e:
-            print(f"\n⚠️  Error in worker loop: {e}")
+            print(f"\n⚠️  Error in agent loop: {e}")
             print("Continuing...")
             time.sleep(poll_interval)
 
@@ -193,12 +193,12 @@ def worker_loop(
 def main() -> None:
     """Main entry point"""
     parser = argparse.ArgumentParser(
-        description="MAO Worker Loop - Runs inside tmux pane"
+        description="MAO Agent Loop - Runs inside tmux pane"
     )
     parser.add_argument(
         "--role",
         required=True,
-        help="Worker role (e.g., worker-1, worker-2)",
+        help="Agent role (e.g., agent-1, agent-2)",
     )
     parser.add_argument(
         "--project-path",
@@ -225,8 +225,8 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    # Run worker loop
-    worker_loop(
+    # Run agent loop
+    agent_loop(
         role=args.role,
         project_path=args.project_path,
         model=args.model,

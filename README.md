@@ -38,7 +38,7 @@ Integration
 ## Features
 
 - **Hierarchical Agent System**: Specialized agents for governance, planning, development, QA, and integration
-- **Dynamic Worker Pool**: Spawn development agents on-demand with specific roles
+- **Dynamic Agent Pool**: Spawn development agents on-demand with specific roles
 - **Real-time Monitoring**: Textual TUI dashboard + tmux agent logs
 - **Flexible Configuration**: YAML + Markdown role definitions
 - **Coding Standards**: Language-specific and project-specific coding standards support

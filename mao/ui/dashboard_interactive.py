@@ -372,8 +372,8 @@ class InteractiveDashboard(App):
             await asyncio.sleep(3)
             self.exit()
 
-    async def _extract_worker_spawns(self, text: str) -> None:
-        """CTOの応答からワーカー起動リクエストを抽出（スキル経由）
+    async def _extract_agent_spawns(self, text: str) -> None:
+        """CTOの応答からエージェント起動リクエストを抽出（スキル経由）
 
         Args:
             text: CTOの応答テキスト
@@ -381,15 +381,15 @@ class InteractiveDashboard(App):
         import re
         import json
 
-        # [MAO_WORKER_SPAWN]...[/MAO_WORKER_SPAWN] パターンを検索
-        pattern = r'\[MAO_WORKER_SPAWN\](.*?)\[/MAO_WORKER_SPAWN\]'
+        # [MAO_AGENT_SPAWN]...[/MAO_AGENT_SPAWN] パターンを検索
+        pattern = r'\[MAO_AGENT_SPAWN\](.*?)\[/MAO_AGENT_SPAWN\]'
         matches = re.findall(pattern, text, re.DOTALL)
 
         if not matches:
             # 旧形式（Task N:）も試す
             if self.log_viewer_widget:
                 self.log_viewer_widget.add_log(
-                    "⚠️ /spawn-worker スキルが使用されていません。旧形式のタスク抽出を試みます...",
+                    "⚠️ /spawn-agent スキルが使用されていません。旧形式のタスク抽出を試みます...",
                     level="WARN",
                     agent_id="manager",
                 )
@@ -399,7 +399,7 @@ class InteractiveDashboard(App):
 
         if self.log_viewer_widget:
             self.log_viewer_widget.add_log(
-                f"🔍 ワーカー起動リクエスト: {len(matches)}件",
+                f"🔍 エージェント起動リクエスト: {len(matches)}件",
                 level="INFO",
                 agent_id="manager",
             )
@@ -410,17 +410,17 @@ class InteractiveDashboard(App):
         for idx, match in enumerate(matches, 1):
             try:
                 # JSONをパース
-                worker_data = json.loads(match.strip())
+                agent_data = json.loads(match.strip())
 
-                task_description = worker_data.get("task", "")
-                role = worker_data.get("role")
-                model = worker_data.get("model")  # Noneの場合はロールデフォルト使用
-                priority = worker_data.get("priority", "medium")
+                task_description = agent_data.get("task", "")
+                role = agent_data.get("role")
+                model = agent_data.get("model")  # Noneの場合はロールデフォルト使用
+                priority = agent_data.get("priority", "medium")
 
                 if not task_description or not role:
                     if self.log_viewer_widget:
                         self.log_viewer_widget.add_log(
-                            f"⚠️ 無効なワーカーデータ: task={task_description}, role={role}",
+                            f"⚠️ 無効なエージェントデータ: task={task_description}, role={role}",
                             level="WARN",
                             agent_id="manager",
                         )
@@ -891,7 +891,7 @@ class InteractiveDashboard(App):
 
                 # 承認キューウィジェットから削除
                 if self.approval_queue_widget:
-                    self.approval_queue_widget.remove_worker_approval(approval_id)
+                    self.approval_queue_widget.remove_agent_approval(approval_id)
 
                 # 次のタスクを開始
                 self.current_task_index += 1
@@ -924,7 +924,7 @@ class InteractiveDashboard(App):
 
                 # 承認キューウィジェットから削除
                 if self.approval_queue_widget:
-                    self.approval_queue_widget.remove_worker_approval(approval_id)
+                    self.approval_queue_widget.remove_agent_approval(approval_id)
 
                 # 同じタスクを再実行（フィードバック付き）
                 await self._retry_task_with_feedback(approval_id, feedback)
@@ -1076,9 +1076,9 @@ class InteractiveDashboard(App):
 
         # ワーカー完了を監視（シーケンシャルモードのみ）
         if self.sequential_mode and self.tmux_manager:
-            await self._check_worker_completion()
+            await self._check_agent_completion()
 
-    async def _check_worker_completion(self) -> None:
+    async def _check_agent_completion(self) -> None:
         """ワーカーの完了をチェックして承認キューに追加"""
         for agent_id, agent_info in list(self.agents.items()):
             pane_id = agent_info.get("pane_id")
@@ -1111,7 +1111,7 @@ class InteractiveDashboard(App):
 
                 # 承認キューに追加
                 approval_item = self.approval_queue.add_item(
-                    worker_id=agent_id,
+                    agent_id=agent_id,
                     task_number=agent_info["task_number"],
                     task_description=agent_info["task"],
                     role=agent_info["role"],
@@ -1132,9 +1132,9 @@ class InteractiveDashboard(App):
 
                 # 承認キューウィジェットを更新
                 if self.approval_queue_widget:
-                    self.approval_queue_widget.add_worker_approval({
+                    self.approval_queue_widget.add_agent_approval({
                         'id': approval_item.id,
-                        'worker_id': agent_id,
+                        'agent_id': agent_id,
                         'task_description': agent_info["task"],
                         'changed_files': changed_files,
                     })
@@ -1250,9 +1250,9 @@ class InteractiveDashboard(App):
 
         # エージェントIDを生成
         timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-        worker_num = len([a for a in self.agents if a.startswith("worker-")]) + 1
-        agent_id = f"worker-{worker_num}"
-        pane_role = f"worker-{worker_num}"  # tmux grid paneのロール名
+        agent_num = len([a for a in self.agents if a.startswith("agent-")]) + 1
+        agent_id = f"agent-{agent_num}"
+        pane_role = f"agent-{agent_num}"  # tmux grid paneのロール名
 
         if self.log_viewer_widget:
             self.log_viewer_widget.add_log(
@@ -1279,20 +1279,20 @@ class InteractiveDashboard(App):
                     role=role,
                 )
 
-            # Feedback モードの場合、ワーカー用 worktree を作成
-            worker_worktree = None
-            worker_branch = None
+            # Feedback モードの場合、エージェント用 worktree を作成
+            agent_worktree = None
+            agent_branch = None
             if self.feedback_branch and self.worktree_manager:
-                worker_branch = f"{self.feedback_branch}-{agent_id}"
-                worker_worktree = self.worktree_manager.create_worker_worktree(
+                agent_branch = f"{self.feedback_branch}-{agent_id}"
+                agent_worktree = self.worktree_manager.create_worker_worktree(
                     parent_branch=self.feedback_branch,
-                    worker_id=agent_id
+                    agent_id=agent_id
                 )
 
-                if worker_worktree:
+                if agent_worktree:
                     if self.log_viewer_widget:
                         self.log_viewer_widget.add_log(
-                            f"📂 Created worktree for {agent_id}: {worker_worktree}",
+                            f"📂 Created worktree for {agent_id}: {agent_worktree}",
                             level="INFO",
                             agent_id="manager",
                         )
@@ -1747,7 +1747,7 @@ Description: |
                     await self._handle_feedback_completion(response)
 
                 # スキル経由のワーカー起動を抽出（新方式）
-                await self._extract_worker_spawns(response)
+                await self._extract_agent_spawns(response)
 
                 # レガシー: テキスト形式のタスク指示を抽出（旧方式、非推奨）
                 # await self._extract_and_spawn_tasks(response)

@@ -17,14 +17,14 @@ class TmuxManager:
         use_grid_layout: bool = False,
         grid_width: int = 240,
         grid_height: int = 60,
-        num_workers: int = 8,
+        num_agents: int = 8,
         logger: Optional[logging.Logger] = None,
     ):
         self.session_name = session_name
         self.use_grid_layout = use_grid_layout
         self.grid_width = grid_width
         self.grid_height = grid_height
-        self.num_workers = num_workers
+        self.num_agents = num_agents
         self.panes: Dict[str, str] = {}  # agent_id -> pane_id
         self.grid_panes: Dict[str, str] = {}  # role -> pane_id (grid mode)
         self.logger = logger or logging.getLogger(__name__)
@@ -161,7 +161,7 @@ class TmuxManager:
             )
 
             # 4. 各ペインに役割を割り当て
-            roles = ["manager"] + [f"worker-{i}" for i in range(1, self.num_workers + 1)]
+            roles = ["manager"] + [f"agent-{i}" for i in range(1, self.num_agents + 1)]
 
             for idx, role in enumerate(roles):
                 pane_id = f"{self.session_name}:0.{idx}"
@@ -170,14 +170,14 @@ class TmuxManager:
                 # ペインタイトルを設定
                 role_display = {
                     "manager": "📋 MANAGER",
-                    "worker-1": "🔧 WORKER-1",
-                    "worker-2": "🔧 WORKER-2",
-                    "worker-3": "🔧 WORKER-3",
-                    "worker-4": "🔧 WORKER-4",
-                    "worker-5": "🔧 WORKER-5",
-                    "worker-6": "🔧 WORKER-6",
-                    "worker-7": "🔧 WORKER-7",
-                    "worker-8": "🔧 WORKER-8",
+                    "agent-1": "🔧 AGENT-1",
+                    "agent-2": "🔧 AGENT-2",
+                    "agent-3": "🔧 AGENT-3",
+                    "agent-4": "🔧 AGENT-4",
+                    "agent-5": "🔧 AGENT-5",
+                    "agent-6": "🔧 AGENT-6",
+                    "agent-7": "🔧 AGENT-7",
+                    "agent-8": "🔧 AGENT-8",
                 }.get(role, role.upper())
 
                 subprocess.run(
@@ -311,7 +311,7 @@ Waiting for agents to start...
         """グリッドレイアウトでエージェントをペインに割り当て
 
         Args:
-            role: エージェントのロール（manager, worker-1, etc.）
+            role: エージェントのロール（manager, agent-1, etc.）
             agent_id: エージェントID
             work_dir: claude-codeの作業ディレクトリ
 
@@ -442,7 +442,7 @@ Waiting for agents to start...
             self.logger.error(f"Failed to start interactive claude-code: {e}")
             return False
 
-    def start_worker_loop_in_pane(
+    def start_agent_loop_in_pane(
         self,
         pane_id: str,
         role: str,
@@ -451,11 +451,11 @@ Waiting for agents to start...
         poll_interval: float = 2.0,
         allow_unsafe: bool = False,
     ) -> bool:
-        """tmuxペイン内でワーカーループを起動
+        """tmuxペイン内でエージェントループを起動
 
         Args:
             pane_id: 実行するペインID
-            role: ワーカーロール（worker-1, worker-2, etc.）
+            role: エージェントロール（agent-1, agent-2, etc.）
             project_path: プロジェクトルートパス
             model: モデル名
             poll_interval: ポーリング間隔（秒）
@@ -465,13 +465,13 @@ Waiting for agents to start...
             コマンド送信成功したかどうか
         """
         try:
-            # worker_loop.pyのパス
-            worker_loop_script = Path(__file__).parent / "worker_loop.py"
+            # agent_loop.pyのパス
+            agent_loop_script = Path(__file__).parent / "agent_loop.py"
 
             # コマンドを構築
             cmd_parts = [
                 "python3",
-                shlex.quote(str(worker_loop_script)),
+                shlex.quote(str(agent_loop_script)),
                 "--role", role,
                 "--project-path", shlex.quote(str(project_path)),
                 "--model", model,
@@ -486,9 +486,102 @@ Waiting for agents to start...
             # tmuxペイン内でコマンドを実行
             self._send_to_pane(pane_id, command)
 
-            self.logger.info(f"Started worker loop for {role} in pane {pane_id}")
+            self.logger.info(f"Started agent loop for {role} in pane {pane_id}")
             return True
 
         except Exception as e:
-            self.logger.error(f"Failed to start worker loop: {e}")
+            self.logger.error(f"Failed to start agent loop: {e}")
             return False
+
+    def is_pane_busy(self, pane_id: str) -> bool:
+        """ペインでプロセスが実行中かチェック
+
+        Args:
+            pane_id: ペインID
+
+        Returns:
+            プロセス実行中ならTrue
+        """
+        try:
+            # tmux display-message でペインの実行状態を取得
+            # pane_in_mode: コピーモードなど特殊モードにいるか
+            # pane_current_command: 現在実行中のコマンド
+            result = subprocess.run(
+                ["tmux", "display-message", "-p", "-t", pane_id, "#{pane_current_command}"],
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            current_command = result.stdout.strip()
+
+            # シェル以外のコマンドが実行中ならbusy
+            # bash, zsh, sh などはアイドル状態
+            idle_shells = ["bash", "zsh", "sh", "fish", "ksh"]
+            return current_command not in idle_shells
+
+        except subprocess.CalledProcessError:
+            return False
+
+    def get_pane_content(self, pane_id: str, lines: int = 100) -> str:
+        """ペインの内容を取得
+
+        Args:
+            pane_id: ペインID
+            lines: 取得する行数
+
+        Returns:
+            ペインの内容
+        """
+        try:
+            result = subprocess.run(
+                ["tmux", "capture-pane", "-p", "-t", pane_id, "-S", f"-{lines}"],
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            return result.stdout
+        except subprocess.CalledProcessError as e:
+            self.logger.error(f"Failed to capture pane content: {e}")
+            return ""
+
+    def get_pane_status(self, pane_id: str) -> Dict[str, any]:
+        """ペインの詳細ステータスを取得
+
+        Args:
+            pane_id: ペインID
+
+        Returns:
+            ステータス情報の辞書
+        """
+        try:
+            # 複数の情報を一度に取得
+            result = subprocess.run(
+                [
+                    "tmux", "display-message", "-p", "-t", pane_id,
+                    "#{pane_current_command}|||#{pane_pid}|||#{pane_active}|||#{pane_dead}"
+                ],
+                capture_output=True,
+                text=True,
+                check=True
+            )
+
+            parts = result.stdout.strip().split("|||")
+            if len(parts) >= 4:
+                return {
+                    "current_command": parts[0],
+                    "pid": int(parts[1]) if parts[1].isdigit() else None,
+                    "active": parts[2] == "1",
+                    "dead": parts[3] == "1",
+                    "busy": parts[0] not in ["bash", "zsh", "sh", "fish", "ksh"]
+                }
+
+        except (subprocess.CalledProcessError, ValueError) as e:
+            self.logger.error(f"Failed to get pane status: {e}")
+
+        return {
+            "current_command": None,
+            "pid": None,
+            "active": False,
+            "dead": True,
+            "busy": False
+        }

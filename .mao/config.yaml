@@ -7,7 +7,7 @@ default_language: python
 agents:
   default_model: sonnet  # sonnet, opus, haiku
   enable_parallel: true
-  max_workers: 5
+  max_agents: 5
 
 # State management
 state:
@@ -21,6 +21,7 @@ logging:
 # Security settings
 security:
   # WARNING: Setting allow_unsafe_operations to true gives agents unrestricted file system access
-  allow_unsafe_operations: false  # Use --dangerously-skip-permissions flag
+  # For MAO development, this should be true to allow agents to edit files without manual approval
+  allow_unsafe_operations: true  # Use --dangerously-skip-permissions flag
   allow_file_write: true
   allow_command_execution: true

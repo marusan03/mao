@@ -16,21 +16,21 @@ from mao.orchestrator.message_queue import MessageQueue, MessageType, MessagePri
 
 
 class SubTask:
-    """サブタスク（ワーカーに割り当てるタスク）"""
+    """サブタスク（エージェントに割り当てるタスク）"""
 
     def __init__(
         self,
         subtask_id: str,
         parent_task_id: str,
         description: str,
-        worker_id: Optional[str] = None,
+        agent_id: Optional[str] = None,
         role: str = "general",
         priority: str = "medium",
     ):
         self.subtask_id = subtask_id
         self.parent_task_id = parent_task_id
         self.description = description
-        self.worker_id = worker_id
+        self.agent_id = agent_id
         self.role = role  # エージェントの役割
         self.priority = priority  # タスクの優先度
         self.status = "pending"
@@ -43,7 +43,7 @@ class SubTask:
             "subtask_id": self.subtask_id,
             "parent_task_id": self.parent_task_id,
             "description": self.description,
-            "worker_id": self.worker_id,
+            "agent_id": self.agent_id,
             "role": self.role,
             "priority": self.priority,
             "status": self.status,
@@ -58,11 +58,11 @@ class TaskDispatcher:
     def __init__(
         self,
         project_path: Optional[Path] = None,
-        max_workers: int = 8,
+        max_agents: int = 8,
         executor: Optional[Any] = None,
     ):
         self.roles = self._load_roles()
-        self.max_workers = max_workers
+        self.max_agents = max_agents
         self.project_path = project_path or Path.cwd()
         self.executor = executor  # AgentExecutor or ClaudeCodeExecutor
 
@@ -244,14 +244,14 @@ class TaskDispatcher:
         return agent_config
 
     async def decompose_task_with_manager(
-        self, task_id: str, task_description: str, num_workers: int
+        self, task_id: str, task_description: str, num_agents: int
     ) -> List[SubTask]:
         """Managerエージェントを使ってタスクを分解
 
         Args:
             task_id: 親タスクID
             task_description: タスクの説明
-            num_workers: 使用するワーカー数
+            num_agents: 使用するエージェント数
 
         Returns:
             SubTaskのリスト
@@ -261,7 +261,7 @@ class TaskDispatcher:
 
         if not manager_prompt_file.exists():
             # フォールバック：シンプルな分解
-            return self.decompose_task_to_workers(task_id, task_description, num_workers)
+            return self.decompose_task_to_agents(task_id, task_description, num_agents)
 
         with open(manager_prompt_file) as f:
             manager_prompt = f.read()
@@ -275,7 +275,7 @@ class TaskDispatcher:
 
 {task_description}
 
-**Available Workers**: {num_workers}
+**Available Agents**: {num_agents}
 
 Please analyze this task and provide the decomposition in YAML format following this structure:
 
@@ -283,7 +283,7 @@ Please analyze this task and provide the decomposition in YAML format following 
 tasks:
   - id: task-1
     title: Task title
-    role: worker_role
+    role: agent_role
     priority: high|medium|low
     description: Detailed description
 ```
@@ -301,7 +301,7 @@ tasks:
 
                 if not result.get("success"):
                     logging.warning(f"Manager execution failed: {result.get('error')}")
-                    return self.decompose_task_to_workers(task_id, task_description, num_workers)
+                    return self.decompose_task_to_agents(task_id, task_description, num_agents)
 
                 response = result.get("response", "")
 
@@ -312,15 +312,15 @@ tasks:
                     return subtasks
                 else:
                     logging.warning("No valid tasks extracted from manager response")
-                    return self.decompose_task_to_workers(task_id, task_description, num_workers)
+                    return self.decompose_task_to_agents(task_id, task_description, num_agents)
 
             else:
                 # Executorが設定されていない場合はフォールバック
-                return self.decompose_task_to_workers(task_id, task_description, num_workers)
+                return self.decompose_task_to_agents(task_id, task_description, num_agents)
 
         except Exception as e:
             logging.error(f"Error in decompose_task_with_manager: {e}")
-            return self.decompose_task_to_workers(task_id, task_description, num_workers)
+            return self.decompose_task_to_agents(task_id, task_description, num_agents)
 
     def _extract_tasks_from_yaml(self, response: str, parent_task_id: str) -> List[SubTask]:
         """応答からYAMLを抽出してSubTaskリストに変換
@@ -378,49 +378,49 @@ tasks:
 
         return subtasks
 
-    def decompose_task_to_workers(
-        self, task_id: str, task_description: str, num_workers: Optional[int] = None
+    def decompose_task_to_agents(
+        self, task_id: str, task_description: str, num_agents: Optional[int] = None
     ) -> List[SubTask]:
-        """タスクを複数のワーカー用サブタスクに分解（シンプル版）
+        """タスクを複数のエージェント用サブタスクに分解（シンプル版）
 
         Args:
             task_id: 親タスクID
             task_description: タスクの説明
-            num_workers: 使用するワーカー数（Noneの場合は自動決定）
+            num_agents: 使用するエージェント数（Noneの場合は自動決定）
 
         Returns:
             SubTaskのリスト
         """
-        if num_workers is None:
-            num_workers = 1
+        if num_agents is None:
+            num_agents = 1
 
-        num_workers = min(num_workers, self.max_workers)
+        num_agents = min(num_agents, self.max_agents)
         subtasks = []
 
-        for idx in range(num_workers):
+        for idx in range(num_agents):
             subtask_id = f"{task_id}-sub{idx + 1}"
-            worker_id = f"worker-{idx + 1}"
+            agent_id = f"agent-{idx + 1}"
 
             subtask = SubTask(
                 subtask_id=subtask_id,
                 parent_task_id=task_id,
                 description=task_description,
-                worker_id=worker_id,
+                agent_id=agent_id,
             )
             subtasks.append(subtask)
 
         self.current_subtasks = subtasks
         return subtasks
 
-    def assign_tasks_to_workers(self, subtasks: List[SubTask]) -> None:
-        """サブタスクをワーカーに割り当て（YAMLファイルに書き込み）"""
+    def assign_tasks_to_agents(self, subtasks: List[SubTask]) -> None:
+        """サブタスクをエージェントに割り当て（YAMLファイルに書き込み）"""
         for subtask in subtasks:
-            if subtask.worker_id:
-                self._write_worker_task(subtask.worker_id, subtask)
+            if subtask.agent_id:
+                self._write_agent_task(subtask.agent_id, subtask)
 
-    def _write_worker_task(self, worker_id: str, subtask: SubTask) -> None:
-        """ワーカー用のタスクファイルを書き込み"""
-        task_file = self.tasks_dir / f"{worker_id}.yaml"
+    def _write_agent_task(self, agent_id: str, subtask: SubTask) -> None:
+        """エージェント用のタスクファイルを書き込み"""
+        task_file = self.tasks_dir / f"{agent_id}.yaml"
 
         task_data = {
             "task": subtask.to_dict(),
@@ -430,9 +430,9 @@ tasks:
         with open(task_file, "w") as f:
             yaml.dump(task_data, f, default_flow_style=False, allow_unicode=True)
 
-    def read_worker_result(self, worker_id: str) -> Optional[Dict[str, Any]]:
-        """ワーカーの結果を読み込み"""
-        result_file = self.results_dir / f"{worker_id}.yaml"
+    def read_agent_result(self, agent_id: str) -> Optional[Dict[str, Any]]:
+        """エージェントの結果を読み込み"""
+        result_file = self.results_dir / f"{agent_id}.yaml"
 
         if not result_file.exists():
             return None
@@ -440,15 +440,15 @@ tasks:
         with open(result_file) as f:
             return yaml.safe_load(f)
 
-    def collect_worker_results(self) -> Dict[str, Any]:
-        """すべてのワーカーの結果を収集"""
+    def collect_agent_results(self) -> Dict[str, Any]:
+        """すべてのエージェントの結果を収集"""
         results = {}
 
         for subtask in self.current_subtasks:
-            if subtask.worker_id:
-                result = self.read_worker_result(subtask.worker_id)
+            if subtask.agent_id:
+                result = self.read_agent_result(subtask.agent_id)
                 if result:
-                    results[subtask.worker_id] = result
+                    results[subtask.agent_id] = result
                     subtask.status = "completed"
                     subtask.result = result.get("result")
 
@@ -468,12 +468,12 @@ tasks:
 **Status:** {status}
 **Description:** {task_description}
 
-## Workers
+## Agents
 """
 
         for subtask in self.current_subtasks:
-            worker_status = subtask.status
-            content += f"- **{subtask.worker_id}**: {worker_status}\n"
+            agent_status = subtask.status
+            content += f"- **{subtask.agent_id}**: {agent_status}\n"
             content += f"  - Task: {subtask.description}\n"
             if subtask.result:
                 content += f"  - Result: {subtask.result[:100]}...\n"
@@ -494,18 +494,18 @@ tasks:
             result_file.unlink()
 
     async def report_task_started(
-        self, worker_id: str, subtask_id: str, description: str
+        self, agent_id: str, subtask_id: str, description: str
     ) -> None:
-        """ワーカーがタスク開始を報告
+        """エージェントがタスク開始を報告
 
         Args:
-            worker_id: ワーカーID
+            agent_id: エージェントID
             subtask_id: サブタスクID
             description: タスク説明
         """
         await self.message_queue.send_message(
             message_type=MessageType.TASK_STARTED,
-            sender=worker_id,
+            sender=agent_id,
             receiver="manager",
             content=f"タスクを開始しました: {description}",
             priority=MessagePriority.MEDIUM,
@@ -522,19 +522,19 @@ tasks:
                 break
 
     async def report_task_progress(
-        self, worker_id: str, subtask_id: str, progress: str, percentage: Optional[int] = None
+        self, agent_id: str, subtask_id: str, progress: str, percentage: Optional[int] = None
     ) -> None:
-        """ワーカーがタスク進捗を報告
+        """エージェントがタスク進捗を報告
 
         Args:
-            worker_id: ワーカーID
+            agent_id: エージェントID
             subtask_id: サブタスクID
             progress: 進捗内容
             percentage: 進捗率（0-100）
         """
         await self.message_queue.send_message(
             message_type=MessageType.TASK_PROGRESS,
-            sender=worker_id,
+            sender=agent_id,
             receiver="manager",
             content=progress,
             priority=MessagePriority.LOW,
@@ -545,18 +545,18 @@ tasks:
         )
 
     async def report_task_completed(
-        self, worker_id: str, subtask_id: str, result: str
+        self, agent_id: str, subtask_id: str, result: str
     ) -> None:
-        """ワーカーがタスク完了を報告
+        """エージェントがタスク完了を報告
 
         Args:
-            worker_id: ワーカーID
+            agent_id: エージェントID
             subtask_id: サブタスクID
             result: 実行結果
         """
         await self.message_queue.send_message(
             message_type=MessageType.TASK_COMPLETED,
-            sender=worker_id,
+            sender=agent_id,
             receiver="manager",
             content=f"タスクが完了しました: {result[:100]}",
             priority=MessagePriority.HIGH,
@@ -574,18 +574,18 @@ tasks:
                 break
 
     async def report_task_failed(
-        self, worker_id: str, subtask_id: str, error: str
+        self, agent_id: str, subtask_id: str, error: str
     ) -> None:
-        """ワーカーがタスク失敗を報告
+        """エージェントがタスク失敗を報告
 
         Args:
-            worker_id: ワーカーID
+            agent_id: エージェントID
             subtask_id: サブタスクID
             error: エラー内容
         """
         await self.message_queue.send_message(
             message_type=MessageType.TASK_FAILED,
-            sender=worker_id,
+            sender=agent_id,
             receiver="manager",
             content=f"タスクが失敗しました: {error}",
             priority=MessagePriority.URGENT,
@@ -630,9 +630,9 @@ tasks:
             subtask.priority = new_priority
 
         # ステータスをリセット
-        old_worker = subtask.worker_id
+        old_worker = subtask.agent_id
         subtask.status = "pending"
-        subtask.worker_id = None
+        subtask.agent_id = None
         subtask.result = None
 
         # メッセージを送信

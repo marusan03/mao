@@ -1,5 +1,5 @@
 """
-CTO Orchestrator - CTOの監視とワーカー管理
+CTO Orchestrator - CTOの監視とエージェント管理
 """
 import asyncio
 import logging
@@ -20,24 +20,24 @@ from mao.ui.widgets.approval_request import ApprovalRequest, RiskLevel
 
 
 class CTOOrchestrator:
-    """CTO orchestrator - ワーカーの監視と管理"""
+    """CTO orchestrator - エージェントの監視と管理"""
 
     def __init__(
         self,
         project_path: Path,
-        num_workers: int = 8,
+        num_agents: int = 8,
         poll_interval: float = 2.0,
         logger: Optional[logging.Logger] = None,
     ):
         """
         Args:
             project_path: プロジェクトパス
-            num_workers: ワーカー数
+            num_agents: エージェント数
             poll_interval: ポーリング間隔（秒）
             logger: ロガー
         """
         self.project_path = project_path
-        self.num_workers = num_workers
+        self.num_agents = num_agents
         self.poll_interval = poll_interval
         self.logger = logger or logging.getLogger(__name__)
 
@@ -79,7 +79,7 @@ class CTOOrchestrator:
         """自動承認コールバックを設定
 
         Args:
-            callback: 自動承認時に呼ばれるコールバック(worker_id, reason)
+            callback: 自動承認時に呼ばれるコールバック(agent_id, reason)
         """
         self.on_auto_approved = callback
 
@@ -112,11 +112,11 @@ class CTOOrchestrator:
         """監視ループのメイン処理"""
         while self._running:
             try:
-                # 完了済みワーカーの結果を確認
+                # 完了済みエージェントの結果を確認
                 completed_roles = self.task_queue.list_completed_results()
 
                 for role in completed_roles:
-                    await self._process_worker_result(role)
+                    await self._process_agent_result(role)
 
                 # ポーリング間隔待機
                 await asyncio.sleep(self.poll_interval)
@@ -127,11 +127,11 @@ class CTOOrchestrator:
                 self.logger.error(f"Error in monitoring loop: {e}", exc_info=True)
                 await asyncio.sleep(self.poll_interval)
 
-    async def _process_worker_result(self, role: str) -> None:
-        """ワーカーの結果を処理
+    async def _process_agent_result(self, role: str) -> None:
+        """エージェントの結果を処理
 
         Args:
-            role: ワーカーロール（worker-1, worker-2, etc.）
+            role: エージェントロール（agent-1, agent-2, etc.）
         """
         # 結果を取得
         task = self.task_queue.get_result(role)
@@ -180,7 +180,7 @@ class CTOOrchestrator:
         """タスクを自動承認
 
         Args:
-            role: ワーカーロール
+            role: エージェントロール
             task: タスク
             decision: 判断結果
         """
@@ -207,7 +207,7 @@ class CTOOrchestrator:
         """ユーザーに承認を求める
 
         Args:
-            role: ワーカーロール
+            role: エージェントロール
             task: タスク
             decision: 判断結果
         """
@@ -259,7 +259,7 @@ class CTOOrchestrator:
         """タスクを却下
 
         Args:
-            role: ワーカーロール
+            role: エージェントロール
             task: タスク
             decision: 判断結果
         """
@@ -287,10 +287,10 @@ class CTOOrchestrator:
         approval = self.pending_approvals.pop(request_id)
         self.logger.info(f"User approved request {request_id}")
 
-        # ワーカーの状態を更新
+        # エージェントの状態を更新
         await self.state_manager.update_state(
-            agent_id=approval.worker_id,
-            role=approval.worker_id,
+            agent_id=approval.agent_id,
+            role=approval.agent_id,
             status=AgentStatus.COMPLETED,
             current_task=f"Approved: {approval.task_description[:30]}...",
         )
@@ -308,23 +308,23 @@ class CTOOrchestrator:
         approval = self.pending_approvals.pop(request_id)
         self.logger.info(f"User rejected request {request_id}")
 
-        # ワーカーの状態を更新
+        # エージェントの状態を更新
         await self.state_manager.update_state(
-            agent_id=approval.worker_id,
-            role=approval.worker_id,
+            agent_id=approval.agent_id,
+            role=approval.agent_id,
             status=AgentStatus.ERROR,
             current_task=f"Rejected: {approval.task_description[:30]}...",
             error_message="User rejected the changes",
         )
 
     def assign_tasks(self, tasks: List[Dict[str, Any]]) -> None:
-        """タスクをワーカーに割り当て
+        """タスクをエージェントに割り当て
 
         Args:
             tasks: タスクリスト
                 [
-                    {"role": "worker-1", "prompt": "..."},
-                    {"role": "worker-2", "prompt": "..."},
+                    {"role": "agent-1", "prompt": "..."},
+                    {"role": "agent-2", "prompt": "..."},
                 ]
         """
         for task_data in tasks:
