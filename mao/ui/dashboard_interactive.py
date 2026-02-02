@@ -282,7 +282,7 @@ class InteractiveDashboard(App):
         # メッセージキュー
         self.message_queue = MessageQueue(project_path=project_path)
 
-        # 承認キュー（ワーカー完了タスクの承認管理）
+        # 承認キュー（エージェント完了タスクの承認管理）
         from mao.orchestrator.approval_queue import ApprovalQueue
         self.approval_queue = ApprovalQueue(project_path=project_path)
 
@@ -499,7 +499,7 @@ class InteractiveDashboard(App):
             await self._start_next_task()
 
     async def _extract_and_spawn_tasks(self, text: str) -> None:
-        """CTOの応答からタスク指示を抽出してワーカーを起動
+        """CTOの応答からタスク指示を抽出してエージェントを起動
 
         Args:
             text: CTOの応答テキスト
@@ -1018,7 +1018,7 @@ class InteractiveDashboard(App):
                 agent_id="manager",
             )
 
-        # ワーカーを再起動
+        # エージェントを再起動
         await self._spawn_task_agent(
             task_description=enhanced_description,
             role=item.role,
@@ -1074,12 +1074,12 @@ class InteractiveDashboard(App):
                 estimated_cost=stats["total_cost"],
             )
 
-        # ワーカー完了を監視（シーケンシャルモードのみ）
+        # エージェント完了を監視（シーケンシャルモードのみ）
         if self.sequential_mode and self.tmux_manager:
             await self._check_agent_completion()
 
     async def _check_agent_completion(self) -> None:
-        """ワーカーの完了をチェックして承認キューに追加"""
+        """エージェントの完了をチェックして承認キューに追加"""
         for agent_id, agent_info in list(self.agents.items()):
             pane_id = agent_info.get("pane_id")
             if not pane_id:
@@ -1306,7 +1306,7 @@ class InteractiveDashboard(App):
 
             # tmuxペインに割り当てて実行
             if self.tmux_manager:
-                # ワーカー作業ディレクトリ（worktree がある場合はそちらを使用）
+                # エージェント作業ディレクトリ（worktree がある場合はそちらを使用）
                 work_dir = worker_worktree if worker_worktree else self.work_dir
 
                 # ペインに割り当て
@@ -1392,7 +1392,7 @@ Branch: {worker_branch}
         except Exception as e:
             if self.log_viewer_widget:
                 self.log_viewer_widget.add_log(
-                    f"❌ Failed to spawn worker {agent_id}: {str(e)}",
+                    f"❌ Failed to spawn agent {agent_id}: {str(e)}",
                     level="ERROR",
                     agent_id="manager",
                 )
@@ -1446,7 +1446,7 @@ Branch: {worker_branch}
         role: str,
         model: str
     ) -> None:
-        """ワーカーエージェントを実行（バックグラウンド）
+        """エージェントエージェントを実行（バックグラウンド）
 
         Args:
             executor: ClaudeCodeExecutor
@@ -1467,7 +1467,7 @@ Branch: {worker_branch}
                 # 成功
                 if self.log_viewer_widget:
                     self.log_viewer_widget.add_log(
-                        f"✅ Worker {agent_id} completed successfully",
+                        f"✅ Agent {agent_id} completed successfully",
                         level="INFO",
                         agent_id=agent_id,
                     )
@@ -1502,7 +1502,7 @@ Branch: {worker_branch}
                 error = result.get("error", "Unknown error")
                 if self.log_viewer_widget:
                     self.log_viewer_widget.add_log(
-                        f"❌ Worker {agent_id} failed: {error}",
+                        f"❌ Agent {agent_id} failed: {error}",
                         level="ERROR",
                         agent_id=agent_id,
                     )
@@ -1528,7 +1528,7 @@ Branch: {worker_branch}
         except Exception as e:
             if self.log_viewer_widget:
                 self.log_viewer_widget.add_log(
-                    f"❌ Worker {agent_id} crashed: {str(e)}",
+                    f"❌ Agent {agent_id} crashed: {str(e)}",
                     level="ERROR",
                     agent_id=agent_id,
                 )
@@ -1581,20 +1581,20 @@ Branch: {worker_branch}
 - **Feedback**: MAOプロジェクト自体の改善（どのプロジェクトからでもfeedbackを作成可能、MAOでのみimprove実行）
 - **Improvement**: 任意のプロジェクトの改善（プロジェクト固有の機能追加や改善）
 
-**ワーカーの作業フロー:**
-1. 各ワーカーは独自の git worktree と branch で作業します
-2. Worktree は自動的に作成されます（例: `{self.feedback_branch}-worker-1`）
-3. ワーカーは自分のブランチで変更を commit します
+**エージェントの作業フロー:**
+1. 各エージェントは独自の git worktree と branch で作業します
+2. Worktree は自動的に作成されます（例: `{self.feedback_branch}-agent-1`）
+3. エージェントは自分のブランチで変更を commit します
 4. **マージプロセス:**
-   - ワーカーが作業を完了したら、CTOに報告してください
-   - CTO はワーカーのブランチを確認し、問題なければ merge を承認します
-   - ワーカーのブランチは `{self.feedback_branch}` にマージされます
+   - エージェントが作業を完了したら、CTOに報告してください
+   - CTO はエージェントのブランチを確認し、問題なければ merge を承認します
+   - エージェントのブランチは `{self.feedback_branch}` にマージされます
 
 **CTOの責任:**
-- ワーカーの作業進捗を監視
-- 完了したワーカーのコードをレビュー
+- エージェントの作業進捗を監視
+- 完了したエージェントのコードをレビュー
 - マージの承認/却下を判断
-- すべてのワーカーが完了したら、全体の統合を確認
+- すべてのエージェントが完了したら、全体の統合を確認
 ---
 """
 
@@ -1622,7 +1622,7 @@ Branch: {worker_branch}
 
 # 役割と責務
 
-システム全体の技術責任を持ち、ワーカーの作業を監視・管理します。
+システム全体の技術責任を持ち、エージェントの作業を監視・管理します。
 
 {history_text}
 現在のユーザーからの依頼: {message}
@@ -1659,15 +1659,15 @@ Branch: {worker_branch}
    **利用可能なMAOロール:**
 {roles_text}
 
-3. **ワーカー起動（重要！）**
-   ⚠️ **`/spawn-worker` スキルを使用してワーカーを起動してください:**
+3. **エージェント起動（重要！）**
+   ⚠️ **`/spawn-agent` スキルを使用してエージェントを起動してください:**
 
    ```
-   /spawn-worker --task "JWT認証を使ったログイン機能を実装" --role coder_backend --model sonnet
-   /spawn-worker --task "ログイン機能の単体テストと統合テストを作成" --role tester --model sonnet
+   /spawn-agent --task "JWT認証を使ったログイン機能を実装" --role coder_backend --model sonnet
+   /spawn-agent --task "ログイン機能の単体テストと統合テストを作成" --role tester --model sonnet
    ```
 
-   **各タスクごとに1回 `/spawn-worker` を呼び出してください。**
+   **各タスクごとに1回 `/spawn-agent` を呼び出してください。**
 
    **モデル選択ガイド:**
    - **opus**: 複雑な実装、重要な判断、アーキテクチャ設計
@@ -1681,12 +1681,12 @@ Branch: {worker_branch}
 
    ✅ 良い例（スキルを使う）:
    ```
-   /spawn-worker --task "既存の認証システムを調査" --role researcher --model haiku
-   /spawn-worker --task "認証機能を実装" --role coder_backend --model sonnet
+   /spawn-agent --task "既存の認証システムを調査" --role researcher --model haiku
+   /spawn-agent --task "認証機能を実装" --role coder_backend --model sonnet
    ```
 
 回答は簡潔に、具体的に行ってください。
-**タスクを割り当てる場合は、必ず `/spawn-worker` スキルを使用してください。**
+**タスクを割り当てる場合は、必ず `/spawn-agent` スキルを使用してください。**
 
 ---
 **Feedback改善モード完了フロー:**
@@ -1746,7 +1746,7 @@ Description: |
                 if self.feedback_branch and "[FEEDBACK_COMPLETED]" in response:
                     await self._handle_feedback_completion(response)
 
-                # スキル経由のワーカー起動を抽出（新方式）
+                # スキル経由のエージェント起動を抽出（新方式）
                 await self._extract_agent_spawns(response)
 
                 # レガシー: テキスト形式のタスク指示を抽出（旧方式、非推奨）

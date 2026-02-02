@@ -203,14 +203,14 @@ def complete_agent_ids(ctx, param, incomplete):
     common_agents = [
         "manager",
         "cto",
-        "worker-1",
-        "worker-2",
-        "worker-3",
-        "worker-4",
-        "worker-5",
-        "worker-6",
-        "worker-7",
-        "worker-8",
+        "agent-1",
+        "agent-2",
+        "agent-3",
+        "agent-4",
+        "agent-5",
+        "agent-6",
+        "agent-7",
+        "agent-8",
     ]
 
     return [

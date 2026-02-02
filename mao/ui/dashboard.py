@@ -111,7 +111,7 @@ class LogViewerWidget(Static):
 
 
 class TaskControlPanel(Container):
-    """タスク入力とワーカー起動のコントロールパネル"""
+    """タスク入力とエージェント起動のコントロールパネル"""
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -122,11 +122,11 @@ class TaskControlPanel(Container):
             yield Label("[bold]タスクコントロール[/bold]")
             yield Input(placeholder="タスクを入力...", id="task_input")
             with Horizontal():
-                yield Label("ワーカー数:", classes="label")
+                yield Label("エージェント数:", classes="label")
                 yield Select(
-                    [(f"{i} Workers", i) for i in range(1, 9)],
+                    [(f"{i} Agents", i) for i in range(1, 9)],
                     value=3,
-                    id="num_workers",
+                    id="num_agents",
                 )
                 yield Button("起動", id="launch_task", variant="primary")
 
@@ -254,7 +254,7 @@ class Dashboard(App):
             self.executor = api_executor
             self.executor_type = "api"
 
-        # タスクディスパッチャー（マルチワーカー対応）
+        # タスクディスパッチャー（マルチエージェント対応）
         from mao.orchestrator.task_dispatcher import TaskDispatcher
         self.task_dispatcher = TaskDispatcher(project_path=project_path)
 
@@ -371,11 +371,11 @@ class Dashboard(App):
             if self.log_viewer_widget:
                 self.log_viewer_widget.add_log(f"初期タスクを開始: {self.initial_prompt[:50]}...")
 
-            # グリッドレイアウトの場合は複数ワーカーに分配
+            # グリッドレイアウトの場合は複数エージェントに分配
             if self.tmux_manager and self.tmux_manager.use_grid_layout:
                 self.spawn_multi_agents(
                     task_description=self.initial_prompt,
-                    num_workers=3,  # デフォルト3ワーカー
+                    num_agents=3,  # デフォルト3エージェント
                     model=self.initial_model,
                 )
             else:
@@ -420,18 +420,18 @@ class Dashboard(App):
                 self.log_viewer_widget.add_log("⚠ タスクを入力してください")
             return
 
-        # ワーカー数をSelectから取得
-        num_workers_select = self.query_one("#num_workers", Select)
-        num_workers = num_workers_select.value
+        # エージェント数をSelectから取得
+        num_agents_select = self.query_one("#num_agents", Select)
+        num_agents = num_agents_select.value
 
         # タスクをログに記録
         if self.log_viewer_widget:
-            self.log_viewer_widget.add_log(f"🚀 タスク起動: {num_workers}ワーカー")
+            self.log_viewer_widget.add_log(f"🚀 タスク起動: {num_agents}エージェント")
 
-        # マルチワーカーでタスク実行
+        # マルチエージェントでタスク実行
         self.spawn_multi_agents(
             task_description=task_description,
-            num_workers=num_workers,
+            num_agents=num_agents,
             model=self.initial_model,
         )
 
@@ -525,20 +525,20 @@ class Dashboard(App):
         return agent_id
 
     def spawn_multi_agents(
-        self, task_description: str, num_workers: int = 3, model: str = "claude-sonnet-4-20250514"
+        self, task_description: str, num_agents: int = 3, model: str = "claude-sonnet-4-20250514"
     ) -> List[str]:
-        """複数のワーカーエージェントを起動（グリッドレイアウト用）
+        """複数のエージェントエージェントを起動（グリッドレイアウト用）
 
         Args:
             task_description: タスクの説明
-            num_workers: 起動するワーカー数
+            num_agents: 起動するエージェント数
             model: 使用するモデル
 
         Returns:
             起動したエージェントIDのリスト
         """
         if self.log_viewer_widget:
-            self.log_viewer_widget.add_log(f"マルチエージェントモード: {num_workers}ワーカーを起動")
+            self.log_viewer_widget.add_log(f"マルチエージェントモード: {num_agents}エージェントを起動")
 
         # タスクIDを生成
         task_id = f"task-{int(time.time())}"
@@ -547,38 +547,38 @@ class Dashboard(App):
         subtasks = self.task_dispatcher.decompose_task_to_workers(
             task_id=task_id,
             task_description=task_description,
-            num_workers=num_workers
+            num_agents=num_agents
         )
 
         # ダッシュボード更新
         self.task_dispatcher.update_dashboard(task_id, task_description, "Running")
 
-        # 各サブタスクに対してワーカーを起動
+        # 各サブタスクに対してエージェントを起動
         agent_ids = []
         for subtask in subtasks:
-            if not subtask.worker_id:
+            if not subtask.agent_id:
                 continue
 
-            agent_id = f"{subtask.worker_id}-{int(time.time())}"
+            agent_id = f"{subtask.agent_id}-{int(time.time())}"
 
             # エージェント専用ロガー作成
             agent_logger = AgentLogger(
                 agent_id=agent_id,
-                agent_name=subtask.worker_id,
+                agent_name=subtask.agent_id,
                 log_dir=self.log_dir
             )
 
             # グリッドレイアウトのペインに割り当て
             if self.tmux_manager:
                 self.tmux_manager.assign_agent_to_pane(
-                    role=subtask.worker_id,
+                    role=subtask.agent_id,
                     agent_id=agent_id,
                     log_file=agent_logger.log_file
                 )
 
             # ログ
             if self.log_viewer_widget:
-                self.log_viewer_widget.add_log(f"{subtask.worker_id} を起動: {subtask.description[:30]}...")
+                self.log_viewer_widget.add_log(f"{subtask.agent_id} を起動: {subtask.description[:30]}...")
 
             # ステータス更新
             if self.agent_status_widget:
@@ -591,7 +591,7 @@ class Dashboard(App):
                 agent_work_dir = self.agents_work_dir / agent_id
                 agent_process = ClaudeAgentProcess(
                     agent_id=agent_id,
-                    role_name=subtask.worker_id,
+                    role_name=subtask.agent_id,
                     prompt=subtask.description,
                     model=model,
                     logger=agent_logger,
@@ -601,7 +601,7 @@ class Dashboard(App):
             else:
                 agent_process = APIAgentProcess(
                     agent_id=agent_id,
-                    role_name=subtask.worker_id,
+                    role_name=subtask.agent_id,
                     prompt=subtask.description,
                     model=model,
                     logger=agent_logger,
@@ -610,7 +610,7 @@ class Dashboard(App):
 
             # エージェント情報を保存
             self.agents[agent_id] = {
-                "role": subtask.worker_id,
+                "role": subtask.agent_id,
                 "logger": agent_logger,
                 "task": {"id": subtask.subtask_id, "description": subtask.description},
                 "process": agent_process,
@@ -623,7 +623,7 @@ class Dashboard(App):
 
         if self.activity_widget:
             self.activity_widget.add_activity(
-                "system", f"{len(agent_ids)}ワーカーを起動", "success"
+                "system", f"{len(agent_ids)}エージェントを起動", "success"
             )
 
         return agent_ids

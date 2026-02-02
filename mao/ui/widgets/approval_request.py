@@ -87,7 +87,7 @@ class ApprovalRequestWidget(Container, can_focus=True):
             # ワーカー情報
             yield Static(
                 f"ワーカー: {self.request.worker_id}",
-                classes="worker-info"
+                classes="agent-info"
             )
 
             # 操作内容
