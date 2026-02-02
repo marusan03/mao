@@ -1,0 +1,153 @@
+name: doc-track-add
+display_name: "➕ Add Document to Tracking"
+description: |
+  スキル: ドキュメントを追跡に追加する
+
+  実装に関連するドキュメントを追跡リストに追加します。
+  実装完了後、これらのドキュメントを更新する必要があることを記録します。
+
+  使用例:
+    /doc-track-add --path "README.md" --reason "新機能の使用方法を追加"
+    /doc-track-add --path "docs/API.md" --reason "新APIエンドポイント追加" --section "認証API"
+    /doc-track-add --path "README.md" --reason "使用方法を更新" --line-start 50 --line-end 75
+
+category: documentation
+version: "1.0.0"
+
+parameters:
+  - name: path
+    description: ドキュメントパス（プロジェクトルートからの相対パス）
+    required: true
+    type: string
+
+  - name: reason
+    description: このドキュメントを更新する理由
+    required: true
+    type: string
+
+  - name: section
+    description: 更新が必要なセクション（オプション）
+    required: false
+    type: string
+
+  - name: line-start
+    description: 更新が必要な開始行番号（オプション）
+    required: false
+    type: string
+
+  - name: line-end
+    description: 更新が必要な終了行番号（オプション）
+    required: false
+    type: string
+
+script: |
+  #!/usr/bin/env python3
+  import sys
+  import os
+  from pathlib import Path
+
+  # MAOモジュールをインポート
+  sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+  from mao.orchestrator.document_tracker import DocumentTracker
+
+  # プロジェクトパス
+  project_path = Path(os.environ.get("PWD", "."))
+
+  # セッションID取得
+  current_session = os.environ.get("MAO_SESSION_ID")
+  if not current_session:
+      print("❌ エラー: MAOセッションが見つかりません")
+      print("   まず /doc-track-start でセッションを開始してください")
+      sys.exit(1)
+
+  # パラメータ取得
+  doc_path = os.environ.get("PATH", "")
+  reason = os.environ.get("REASON", "")
+  section = os.environ.get("SECTION", "")
+  line_start_str = os.environ.get("LINE_START", "")
+  line_end_str = os.environ.get("LINE_END", "")
+
+  if not doc_path or not reason:
+      print("❌ エラー: path と reason が必要です")
+      sys.exit(1)
+
+  # 行番号を整数に変換
+  line_start = None
+  line_end = None
+  try:
+      if line_start_str:
+          line_start = int(line_start_str)
+      if line_end_str:
+          line_end = int(line_end_str)
+  except ValueError:
+      print("❌ エラー: 行番号は整数で指定してください")
+      sys.exit(1)
+
+  # ドキュメントトラッカー初期化
+  tracker = DocumentTracker(project_path=project_path)
+
+  # セッション存在確認
+  session_info = tracker.get_session_info(current_session)
+  if not session_info:
+      print("❌ エラー: アクティブな追跡セッションが見つかりません")
+      print("   /doc-track-start でセッションを開始してください")
+      tracker.close()
+      sys.exit(1)
+
+  # ドキュメント追加
+  success = tracker.add_document(
+      session_id=current_session,
+      document_path=doc_path,
+      reason=reason,
+      section=section or None,
+      line_start=line_start,
+      line_end=line_end
+  )
+
+  if success:
+      print(f"✅ ドキュメントを追跡に追加しました")
+      print(f"📄 パス: {doc_path}")
+      print(f"📝 理由: {reason}")
+      if section:
+          print(f"📌 セクション: {section}")
+      if line_start is not None or line_end is not None:
+          if line_start is not None and line_end is not None:
+              print(f"📍 行範囲: {line_start}-{line_end}")
+          elif line_start is not None:
+              print(f"📍 開始行: {line_start}")
+          elif line_end is not None:
+              print(f"📍 終了行: {line_end}")
+      print()
+
+      # 現在の追跡ドキュメント数を表示
+      docs = tracker.get_tracked_documents(current_session)
+      print(f"📊 追跡中のドキュメント: {len(docs)}件")
+  else:
+      print("❌ ドキュメントの追加に失敗しました")
+      sys.exit(1)
+
+  tracker.close()
+
+requires_approval: false
+risk_level: low
+
+metadata:
+  author: MAO System
+  tags:
+    - documentation
+    - tracking
+  examples:
+    - description: READMEを追跡に追加
+      command: /doc-track-add --path "README.md" --reason "新機能の説明を追加"
+
+    - description: APIドキュメントを追跡に追加
+      command: /doc-track-add --path "docs/API.md" --reason "新エンドポイント追加" --section "認証API"
+
+    - description: 設定ファイルドキュメントを追跡
+      command: /doc-track-add --path "docs/CONFIGURATION.md" --reason "新しい設定オプション追加"
+
+    - description: 行番号を指定して追跡
+      command: /doc-track-add --path "README.md" --reason "使用方法セクションを更新" --line-start 50 --line-end 75
+
+    - description: 開始行のみ指定
+      command: /doc-track-add --path "docs/API.md" --reason "新APIを追加" --section "REST API" --line-start 100

@@ -1,0 +1,94 @@
+name: doc-track-start
+display_name: "📝 Start Document Tracking"
+description: |
+  スキル: ドキュメント追跡を開始する
+
+  実装タスクに関連するドキュメントの追跡を開始します。
+  実装完了後、追跡したドキュメントを自動的に更新できます。
+
+  使用例:
+    /doc-track-start --title "MAOロール実装" --description "Claude CodeタイプからMAOロールへの移行"
+
+category: documentation
+version: "1.0.0"
+
+parameters:
+  - name: title
+    description: 追跡セッションのタイトル
+    required: true
+    type: string
+
+  - name: description
+    description: 追跡セッションの説明
+    required: false
+    type: string
+
+script: |
+  #!/usr/bin/env python3
+  import sys
+  import os
+  from pathlib import Path
+
+  # MAOモジュールをインポート
+  sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+  from mao.orchestrator.document_tracker import DocumentTracker
+  from mao.orchestrator.session_manager import SessionManager
+
+  # プロジェクトパス
+  project_path = Path(os.environ.get("PWD", "."))
+
+  # セッションIDを取得（現在のMAOセッション）
+  session_manager = SessionManager(project_path=project_path)
+  current_session = os.environ.get("MAO_SESSION_ID")
+
+  if not current_session:
+      print("❌ エラー: MAOセッションが見つかりません")
+      sys.exit(1)
+
+  # ドキュメントトラッカー初期化
+  tracker = DocumentTracker(project_path=project_path)
+
+  # タイトルと説明を取得
+  title = os.environ.get("TITLE", "")
+  description = os.environ.get("DESCRIPTION", "")
+
+  if not title:
+      print("❌ エラー: タイトルが必要です")
+      sys.exit(1)
+
+  # 追跡セッション開始
+  success = tracker.start_session(
+      session_id=current_session,
+      title=title,
+      description=description
+  )
+
+  if success:
+      print(f"✅ ドキュメント追跡を開始しました")
+      print(f"📋 タイトル: {title}")
+      if description:
+          print(f"📝 説明: {description}")
+      print(f"🆔 セッションID: {current_session}")
+      print()
+      print("次のステップ:")
+      print("  /doc-track-add --path <ドキュメントパス> --reason <理由>")
+  else:
+      print("❌ 追跡セッションの開始に失敗しました")
+      sys.exit(1)
+
+  tracker.close()
+
+requires_approval: false
+risk_level: low
+
+metadata:
+  author: MAO System
+  tags:
+    - documentation
+    - tracking
+  examples:
+    - description: 新機能実装の追跡開始
+      command: /doc-track-start --title "新機能実装" --description "ユーザー認証機能の追加"
+
+    - description: リファクタリングの追跡開始
+      command: /doc-track-start --title "コードリファクタリング"

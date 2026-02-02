@@ -1,0 +1,133 @@
+name: doc-track-update
+display_name: "🔄 Update Tracked Documents"
+description: |
+  スキル: 追跡中のドキュメントを更新する
+
+  実装内容に基づいて、追跡中のドキュメントを自動的に更新します。
+  未更新のドキュメント一覧を表示し、更新が必要な箇所を提案します。
+
+  使用例:
+    /doc-track-update
+
+category: documentation
+version: "1.0.0"
+
+parameters:
+  - name: auto
+    description: 自動的にドキュメントを更新（確認なし）
+    required: false
+    default: "false"
+    type: string
+    choices:
+      - "true"
+      - "false"
+
+script: |
+  #!/usr/bin/env python3
+  import sys
+  import os
+  from pathlib import Path
+
+  # MAOモジュールをインポート
+  sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+  from mao.orchestrator.document_tracker import DocumentTracker
+
+  # プロジェクトパス
+  project_path = Path(os.environ.get("PWD", "."))
+
+  # セッションID取得
+  current_session = os.environ.get("MAO_SESSION_ID")
+  if not current_session:
+      print("❌ エラー: MAOセッションが見つかりません")
+      sys.exit(1)
+
+  # パラメータ取得
+  auto_mode = os.environ.get("AUTO", "false").lower() == "true"
+
+  # ドキュメントトラッカー初期化
+  tracker = DocumentTracker(project_path=project_path)
+
+  # セッション情報取得
+  session_info = tracker.get_session_info(current_session)
+  if not session_info:
+      print("❌ エラー: 追跡セッションが見つかりません")
+      tracker.close()
+      sys.exit(1)
+
+  # 未更新のドキュメント取得
+  pending_docs = tracker.get_pending_updates(current_session)
+
+  if not pending_docs:
+      print("✅ すべてのドキュメントが更新済みです")
+      tracker.close()
+      sys.exit(0)
+
+  print("📋 未更新のドキュメント:")
+  print("=" * 60)
+  for i, doc in enumerate(pending_docs, 1):
+      print(f"{i}. {doc['document_path']}")
+      print(f"   理由: {doc['reason']}")
+      if doc['section']:
+          print(f"   セクション: {doc['section']}")
+      if doc['line_start'] is not None or doc['line_end'] is not None:
+          if doc['line_start'] is not None and doc['line_end'] is not None:
+              print(f"   行範囲: {doc['line_start']}-{doc['line_end']}")
+          elif doc['line_start'] is not None:
+              print(f"   開始行: {doc['line_start']}")
+          elif doc['line_end'] is not None:
+              print(f"   終了行: {doc['line_end']}")
+      print()
+
+  print("🤖 次のステップ:")
+  print()
+  print("これらのドキュメントを実装内容に基づいて更新してください。")
+  print()
+  print("各ドキュメントについて:")
+  for doc in pending_docs:
+      doc_path = Path(project_path) / doc['document_path']
+      if doc_path.exists():
+          print(f"📄 {doc['document_path']}")
+          print(f"   更新理由: {doc['reason']}")
+          if doc['section']:
+              print(f"   対象セクション: {doc['section']}")
+          if doc['line_start'] is not None or doc['line_end'] is not None:
+              if doc['line_start'] is not None and doc['line_end'] is not None:
+                  print(f"   対象行範囲: {doc['line_start']}-{doc['line_end']}")
+                  print(f"   → Readツールで offset={doc['line_start']-1}, limit={doc['line_end']-doc['line_start']+1} を使用")
+              elif doc['line_start'] is not None:
+                  print(f"   対象開始行: {doc['line_start']}")
+                  print(f"   → Readツールで offset={doc['line_start']-1} を使用")
+              elif doc['line_end'] is not None:
+                  print(f"   対象終了行: {doc['line_end']}")
+          print(f"   → Read、Edit、Writeツールを使用して更新してください")
+          print()
+      else:
+          print(f"⚠️ {doc['document_path']} が見つかりません")
+          print()
+
+  print("💡 更新完了後、以下のコマンドで更新済みとマークしてください:")
+  print()
+  print("[DOC_UPDATE_COMPLETE]")
+  print("{")
+  for doc in pending_docs:
+      print(f'  "{doc["document_path"]}": "更新内容のメモ",')
+  print("}")
+  print("[/DOC_UPDATE_COMPLETE]")
+
+  tracker.close()
+
+requires_approval: false
+risk_level: medium
+
+metadata:
+  author: MAO System
+  tags:
+    - documentation
+    - tracking
+    - update
+  examples:
+    - description: ドキュメント更新
+      command: /doc-track-update
+
+    - description: 自動更新モード
+      command: /doc-track-update --auto true

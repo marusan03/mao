@@ -1,0 +1,122 @@
+name: doc-track-show
+display_name: "👁️ Show Document Tracking Status"
+description: |
+  スキル: ドキュメント追跡状況を表示する
+
+  現在追跡中のドキュメント一覧と、未更新のドキュメントを表示します。
+
+  使用例:
+    /doc-track-show
+
+category: documentation
+version: "1.0.0"
+
+parameters: []
+
+script: |
+  #!/usr/bin/env python3
+  import sys
+  import os
+  from pathlib import Path
+
+  # MAOモジュールをインポート
+  sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+  from mao.orchestrator.document_tracker import DocumentTracker
+
+  # プロジェクトパス
+  project_path = Path(os.environ.get("PWD", "."))
+
+  # セッションID取得
+  current_session = os.environ.get("MAO_SESSION_ID")
+  if not current_session:
+      print("❌ エラー: MAOセッションが見つかりません")
+      sys.exit(1)
+
+  # ドキュメントトラッカー初期化
+  tracker = DocumentTracker(project_path=project_path)
+
+  # セッション情報取得
+  session_info = tracker.get_session_info(current_session)
+  if not session_info:
+      print("❌ エラー: 追跡セッションが見つかりません")
+      print("   /doc-track-start でセッションを開始してください")
+      tracker.close()
+      sys.exit(1)
+
+  # 追跡中のドキュメント取得
+  all_docs = tracker.get_tracked_documents(current_session)
+  pending_docs = tracker.get_pending_updates(current_session)
+
+  # セッション情報表示
+  print("📊 ドキュメント追跡状況")
+  print("=" * 60)
+  print(f"タイトル: {session_info['title']}")
+  if session_info['description']:
+      print(f"説明: {session_info['description']}")
+  print(f"開始: {session_info['started_at']}")
+  print(f"ステータス: {session_info['status']}")
+  print()
+
+  # 統計情報
+  updated_count = len(all_docs) - len(pending_docs)
+  print(f"📈 統計:")
+  print(f"  総ドキュメント数: {len(all_docs)}")
+  print(f"  更新済み: {updated_count}")
+  print(f"  未更新: {len(pending_docs)}")
+  print()
+
+  if not all_docs:
+      print("📝 追跡中のドキュメントはありません")
+      print("   /doc-track-add でドキュメントを追加してください")
+  else:
+      print("📄 追跡中のドキュメント:")
+      print("-" * 60)
+      for doc in all_docs:
+          status = "✅" if doc['updated'] else "⏳"
+          print(f"{status} {doc['document_path']}")
+          print(f"   理由: {doc['reason']}")
+          if doc['section']:
+              print(f"   セクション: {doc['section']}")
+          if doc['line_start'] is not None or doc['line_end'] is not None:
+              if doc['line_start'] is not None and doc['line_end'] is not None:
+                  print(f"   行範囲: {doc['line_start']}-{doc['line_end']}")
+              elif doc['line_start'] is not None:
+                  print(f"   開始行: {doc['line_start']}")
+              elif doc['line_end'] is not None:
+                  print(f"   終了行: {doc['line_end']}")
+          if doc['updated'] and doc['update_notes']:
+              print(f"   更新メモ: {doc['update_notes']}")
+          print()
+
+  if pending_docs:
+      print("⚠️ 未更新のドキュメント:")
+      print("-" * 60)
+      for doc in pending_docs:
+          print(f"📄 {doc['document_path']}")
+          print(f"   理由: {doc['reason']}")
+          if doc['section']:
+              print(f"   セクション: {doc['section']}")
+          if doc['line_start'] is not None or doc['line_end'] is not None:
+              if doc['line_start'] is not None and doc['line_end'] is not None:
+                  print(f"   行範囲: {doc['line_start']}-{doc['line_end']}")
+              elif doc['line_start'] is not None:
+                  print(f"   開始行: {doc['line_start']}")
+              elif doc['line_end'] is not None:
+                  print(f"   終了行: {doc['line_end']}")
+          print()
+      print("💡 ヒント: 実装が完了したら /doc-track-update を使用してドキュメントを更新してください")
+
+  tracker.close()
+
+requires_approval: false
+risk_level: low
+
+metadata:
+  author: MAO System
+  tags:
+    - documentation
+    - tracking
+    - status
+  examples:
+    - description: 追跡状況を表示
+      command: /doc-track-show
