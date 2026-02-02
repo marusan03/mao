@@ -30,6 +30,7 @@ from mao.orchestrator.state_manager import StateManager, AgentStatus
 from mao.orchestrator.message_queue import MessageQueue, Message, MessageType
 from mao.orchestrator.session_manager import SessionManager
 from mao.orchestrator.feedback_manager import FeedbackManager
+from mao.orchestrator.task_dispatcher import TaskDispatcher
 
 
 class InteractiveDashboard(App):
@@ -263,6 +264,15 @@ class InteractiveDashboard(App):
         )
         self.manager_active = False
 
+        # TaskDispatcher（MAOロール読み込み）
+        self.task_dispatcher = TaskDispatcher(
+            project_path=project_path,
+        )
+
+        # MAOロール定義をロード
+        self.available_roles = self.task_dispatcher.roles
+        self.role_names = list(self.available_roles.keys())
+
         # エージェント管理
         self.agents: Dict[str, Dict[str, Any]] = {}
 
@@ -271,6 +281,15 @@ class InteractiveDashboard(App):
 
         # メッセージキュー
         self.message_queue = MessageQueue(project_path=project_path)
+
+        # 承認キュー（ワーカー完了タスクの承認管理）
+        from mao.orchestrator.approval_queue import ApprovalQueue
+        self.approval_queue = ApprovalQueue(project_path=project_path)
+
+        # タスクキュー（順次実行用）
+        self.task_queue: List[Dict[str, Any]] = []
+        self.current_task_index = 0
+        self.sequential_mode = True  # シーケンシャル実行モード
 
         # セッション管理（session_id が指定されている場合はそれを使用、なければ新規作成）
         if self._provided_session_id:
@@ -353,6 +372,132 @@ class InteractiveDashboard(App):
             await asyncio.sleep(3)
             self.exit()
 
+    async def _extract_worker_spawns(self, text: str) -> None:
+        """CTOの応答からワーカー起動リクエストを抽出（スキル経由）
+
+        Args:
+            text: CTOの応答テキスト
+        """
+        import re
+        import json
+
+        # [MAO_WORKER_SPAWN]...[/MAO_WORKER_SPAWN] パターンを検索
+        pattern = r'\[MAO_WORKER_SPAWN\](.*?)\[/MAO_WORKER_SPAWN\]'
+        matches = re.findall(pattern, text, re.DOTALL)
+
+        if not matches:
+            # 旧形式（Task N:）も試す
+            if self.log_viewer_widget:
+                self.log_viewer_widget.add_log(
+                    "⚠️ /spawn-worker スキルが使用されていません。旧形式のタスク抽出を試みます...",
+                    level="WARN",
+                    agent_id="manager",
+                )
+            # 旧形式の抽出を実行
+            await self._extract_and_spawn_tasks(text)
+            return
+
+        if self.log_viewer_widget:
+            self.log_viewer_widget.add_log(
+                f"🔍 ワーカー起動リクエスト: {len(matches)}件",
+                level="INFO",
+                agent_id="manager",
+            )
+
+        # タスクサマリーを作成
+        task_summaries = []
+
+        for idx, match in enumerate(matches, 1):
+            try:
+                # JSONをパース
+                worker_data = json.loads(match.strip())
+
+                task_description = worker_data.get("task", "")
+                role = worker_data.get("role")
+                model = worker_data.get("model")  # Noneの場合はロールデフォルト使用
+                priority = worker_data.get("priority", "medium")
+
+                if not task_description or not role:
+                    if self.log_viewer_widget:
+                        self.log_viewer_widget.add_log(
+                            f"⚠️ 無効なワーカーデータ: task={task_description}, role={role}",
+                            level="WARN",
+                            agent_id="manager",
+                        )
+                    continue
+
+                # ロールが有効か確認
+                if role not in self.available_roles:
+                    if self.log_viewer_widget:
+                        self.log_viewer_widget.add_log(
+                            f"❌ エラー: 未知のロール '{role}'",
+                            level="ERROR",
+                            agent_id="manager",
+                        )
+                    continue
+
+                # タスクをキューに追加
+                self.task_queue.append({
+                    'task_num': idx,
+                    'description': task_description,
+                    'role': role,
+                    'model': model,
+                    'priority': priority,
+                    'status': 'queued',
+                })
+
+                task_summaries.append({
+                    'num': idx,
+                    'description': task_description,
+                    'role': role,
+                    'model': model or self.available_roles[role].get("model", "sonnet"),
+                })
+
+                if self.log_viewer_widget:
+                    model_display = model or self.available_roles[role].get("model", "sonnet")
+                    self.log_viewer_widget.add_log(
+                        f"📋 タスク{idx}をキューに追加: {task_description[:50]}... ({role}/{model_display})",
+                        level="INFO",
+                        agent_id="manager",
+                    )
+
+            except json.JSONDecodeError as e:
+                if self.log_viewer_widget:
+                    self.log_viewer_widget.add_log(
+                        f"❌ JSON解析エラー: {str(e)}",
+                        level="ERROR",
+                        agent_id="manager",
+                    )
+                continue
+
+        # Task Infoを更新
+        if self.header_widget and task_summaries:
+            task_info_text = f"CTOが{len(task_summaries)}つのタスクに分解:\n"
+            for task in task_summaries[:3]:
+                short_desc = task['description'][:40]
+                if len(task['description']) > 40:
+                    short_desc += "..."
+                task_info_text += f"  {task['num']}. {short_desc}\n"
+
+            if len(task_summaries) > 3:
+                task_info_text += f"  ... 他{len(task_summaries) - 3}件"
+
+            self.header_widget.update_task_info(
+                task_description=task_info_text.strip(),
+                active_count=0,
+                total_count=len(task_summaries),
+            )
+
+        # シーケンシャルモードの場合、最初のタスクを開始
+        if self.sequential_mode and self.task_queue and len(matches) > 0:
+            if self.log_viewer_widget:
+                self.log_viewer_widget.add_log(
+                    f"🎯 シーケンシャルモード: タスク1/{len(self.task_queue)}を開始",
+                    level="INFO",
+                    agent_id="manager",
+                )
+            await self._start_next_task()
+
     async def _extract_and_spawn_tasks(self, text: str) -> None:
         """CTOの応答からタスク指示を抽出してワーカーを起動
 
@@ -361,9 +506,39 @@ class InteractiveDashboard(App):
         """
         import re
 
+        # デバッグ: CTOの完全な応答をファイルに保存
+        debug_dir = self.project_path / ".mao" / "debug"
+        debug_dir.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        debug_file = debug_dir / f"cto_response_{timestamp}.txt"
+        debug_file.write_text(text, encoding="utf-8")
+
+        # デバッグ: テキストの一部を表示
+        if self.log_viewer_widget:
+            preview = text[:200].replace('\n', ' ')
+            self.log_viewer_widget.add_log(
+                f"🔍 CTO応答を解析中... (先頭200文字: {preview}...)",
+                level="DEBUG",
+                agent_id="manager",
+            )
+            self.log_viewer_widget.add_log(
+                f"📝 完全な応答を保存: {debug_file}",
+                level="DEBUG",
+                agent_id="manager",
+            )
+
         # タスクパターンを検索 (Task N: で始まる行)
-        task_pattern = r'(?:Task|タスク)\s*(\d+)[:：]\s*(.+?)(?=\n(?:Task|タスク)\s*\d+[:：]|\n---|\n\n\n|$)'
+        # 空行区切りでタスクブロックを分離（Role/Model行も含める）
+        task_pattern = r'(?:Task|タスク)\s*(\d+)[:：]\s*(.+?)(?=\n\s*\n(?:Task|タスク)|\n\s*\n---|\Z)'
         tasks = re.findall(task_pattern, text, re.DOTALL | re.MULTILINE)
+
+        # デバッグ: マッチ数を表示
+        if self.log_viewer_widget:
+            self.log_viewer_widget.add_log(
+                f"🔍 タスクパターンマッチ数: {len(tasks)}件",
+                level="DEBUG",
+                agent_id="manager",
+            )
 
         if not tasks:
             # タスクが検出されなかった場合、警告を表示
@@ -384,12 +559,12 @@ class InteractiveDashboard(App):
         task_summaries = []
 
         for task_num, task_content in tasks:
-            # Role/ロール を抽出
-            role_match = re.search(r'(?:Role|ロール)[:：]\s*(\w+)', task_content, re.IGNORECASE)
+            # Role/ロール を抽出（ハイフン付きロール名に対応）
+            role_match = re.search(r'(?:Role|ロール)[:：]\s*(\S+)', task_content, re.IGNORECASE)
             role = role_match.group(1) if role_match else "general-purpose"
 
             # Model/モデル を抽出
-            model_match = re.search(r'(?:Model|モデル)[:：]\s*(\w+)', task_content, re.IGNORECASE)
+            model_match = re.search(r'(?:Model|モデル)[:：]\s*(\S+)', task_content, re.IGNORECASE)
             model = model_match.group(1) if model_match else "sonnet"
 
             # タスク説明を抽出（最初の行）
@@ -403,19 +578,21 @@ class InteractiveDashboard(App):
                 'role': role,
             })
 
+            # タスクをキューに追加
+            self.task_queue.append({
+                'task_num': int(task_num),
+                'description': task_description,
+                'role': role,
+                'model': model,
+                'status': 'queued',
+            })
+
             if self.log_viewer_widget:
                 self.log_viewer_widget.add_log(
-                    f"🚀 タスク{task_num}をワーカーに割り当て: {role} ({model})",
+                    f"📋 タスク{task_num}をキューに追加: {role} ({model})",
                     level="INFO",
                     agent_id="manager",
                 )
-
-            # ワーカーを起動
-            await self._spawn_task_agent(
-                task_description=task_description,
-                worker_role=role,
-                model=model
-            )
 
         # Task Infoを更新
         if self.header_widget and task_summaries:
@@ -433,9 +610,19 @@ class InteractiveDashboard(App):
             # ヘッダーを更新
             self.header_widget.update_task_info(
                 task_description=task_info_text.strip(),
-                active_count=len(task_summaries),
+                active_count=0,
                 total_count=len(task_summaries),
             )
+
+        # シーケンシャルモードの場合、最初のタスクを開始
+        if self.sequential_mode and self.task_queue:
+            if self.log_viewer_widget:
+                self.log_viewer_widget.add_log(
+                    f"🎯 シーケンシャルモード: タスク1/{len(self.task_queue)}を開始",
+                    level="INFO",
+                    agent_id="manager",
+                )
+            await self._start_next_task()
 
     def _extract_feedbacks(self, text: str) -> None:
         """テキストからフィードバックを抽出して保存
@@ -657,6 +844,11 @@ class InteractiveDashboard(App):
 
     def on_manager_message_send(self, message: str):
         """ユーザーがCTOにメッセージを送信"""
+        # コマンドをチェック
+        if message.startswith('/'):
+            asyncio.create_task(self._handle_command(message))
+            return
+
         # ユーザーメッセージをセッションに保存
         self.session_manager.add_message(role="user", content=message)
 
@@ -667,6 +859,172 @@ class InteractiveDashboard(App):
 
         # 非同期でCTOに送信
         asyncio.create_task(self.send_to_manager(message))
+
+    async def _handle_command(self, command: str) -> None:
+        """コマンドを処理
+
+        Args:
+            command: コマンド文字列（/で始まる）
+        """
+        parts = command.split(maxsplit=2)
+        cmd = parts[0].lower()
+
+        if cmd == "/approve":
+            if len(parts) < 2:
+                if self.manager_chat_panel:
+                    self.manager_chat_panel.add_system_message(
+                        "❌ 使用法: /approve <approval_id> [feedback]"
+                    )
+                return
+
+            approval_id = parts[1]
+            feedback = parts[2] if len(parts) > 2 else None
+
+            # 承認処理
+            success = self.approval_queue.approve(approval_id, feedback)
+
+            if success:
+                if self.manager_chat_panel:
+                    self.manager_chat_panel.add_system_message(
+                        f"✅ タスク {approval_id} を承認しました"
+                    )
+
+                # 承認キューウィジェットから削除
+                if self.approval_queue_widget:
+                    self.approval_queue_widget.remove_worker_approval(approval_id)
+
+                # 次のタスクを開始
+                self.current_task_index += 1
+                await self._start_next_task()
+            else:
+                if self.manager_chat_panel:
+                    self.manager_chat_panel.add_system_message(
+                        f"❌ タスク {approval_id} が見つかりません"
+                    )
+
+        elif cmd == "/reject":
+            if len(parts) < 3:
+                if self.manager_chat_panel:
+                    self.manager_chat_panel.add_system_message(
+                        "❌ 使用法: /reject <approval_id> <feedback>"
+                    )
+                return
+
+            approval_id = parts[1]
+            feedback = parts[2]
+
+            # 却下処理
+            success = self.approval_queue.reject(approval_id, feedback)
+
+            if success:
+                if self.manager_chat_panel:
+                    self.manager_chat_panel.add_system_message(
+                        f"❌ タスク {approval_id} を却下しました。フィードバック: {feedback}"
+                    )
+
+                # 承認キューウィジェットから削除
+                if self.approval_queue_widget:
+                    self.approval_queue_widget.remove_worker_approval(approval_id)
+
+                # 同じタスクを再実行（フィードバック付き）
+                await self._retry_task_with_feedback(approval_id, feedback)
+            else:
+                if self.manager_chat_panel:
+                    self.manager_chat_panel.add_system_message(
+                        f"❌ タスク {approval_id} が見つかりません"
+                    )
+
+        elif cmd == "/diff":
+            if len(parts) < 2:
+                if self.manager_chat_panel:
+                    self.manager_chat_panel.add_system_message(
+                        "❌ 使用法: /diff <approval_id>"
+                    )
+                return
+
+            approval_id = parts[1]
+
+            # 承認アイテムを取得
+            item = self.approval_queue.get_item(approval_id)
+
+            if item:
+                # git diff を表示
+                if item.worktree:
+                    import subprocess
+                    try:
+                        result = subprocess.run(
+                            ["git", "diff", "HEAD"],
+                            cwd=item.worktree,
+                            capture_output=True,
+                            text=True,
+                        )
+                        if result.returncode == 0:
+                            diff_output = result.stdout[:2000]  # 最初の2000文字
+                            if self.manager_chat_panel:
+                                self.manager_chat_panel.add_system_message(
+                                    f"📝 差分 ({approval_id}):\n```\n{diff_output}\n```"
+                                )
+                        else:
+                            if self.manager_chat_panel:
+                                self.manager_chat_panel.add_system_message(
+                                    f"❌ 差分の取得に失敗しました"
+                                )
+                    except Exception as e:
+                        if self.manager_chat_panel:
+                            self.manager_chat_panel.add_system_message(
+                                f"❌ エラー: {str(e)}"
+                            )
+                else:
+                    if self.manager_chat_panel:
+                        self.manager_chat_panel.add_system_message(
+                            "❌ このタスクにはworktreeが関連付けられていません"
+                        )
+            else:
+                if self.manager_chat_panel:
+                    self.manager_chat_panel.add_system_message(
+                        f"❌ タスク {approval_id} が見つかりません"
+                    )
+
+        else:
+            if self.manager_chat_panel:
+                self.manager_chat_panel.add_system_message(
+                    f"❌ 未知のコマンド: {cmd}\n利用可能: /approve, /reject, /diff"
+                )
+
+    async def _retry_task_with_feedback(self, approval_id: str, feedback: str) -> None:
+        """タスクをフィードバック付きで再実行
+
+        Args:
+            approval_id: 承認アイテムID
+            feedback: フィードバック
+        """
+        item = self.approval_queue.get_item(approval_id)
+        if not item:
+            return
+
+        # タスクにフィードバックを追加して再実行
+        enhanced_description = f"""{item.task_description}
+
+【前回の指摘事項】
+{feedback}
+
+上記のフィードバックを反映して修正してください。
+"""
+
+        if self.log_viewer_widget:
+            self.log_viewer_widget.add_log(
+                f"🔄 タスク{item.task_number}を再実行: {feedback[:50]}...",
+                level="INFO",
+                agent_id="manager",
+            )
+
+        # ワーカーを再起動
+        await self._spawn_task_agent(
+            task_description=enhanced_description,
+            role=item.role,
+            model=item.model,
+            task_number=item.task_number,
+        )
 
     async def _periodic_update(self) -> None:
         """定期的に状態を更新（1秒ごと）"""
@@ -715,6 +1073,74 @@ class InteractiveDashboard(App):
                 total_tokens=stats["total_tokens"],
                 estimated_cost=stats["total_cost"],
             )
+
+        # ワーカー完了を監視（シーケンシャルモードのみ）
+        if self.sequential_mode and self.tmux_manager:
+            await self._check_worker_completion()
+
+    async def _check_worker_completion(self) -> None:
+        """ワーカーの完了をチェックして承認キューに追加"""
+        for agent_id, agent_info in list(self.agents.items()):
+            pane_id = agent_info.get("pane_id")
+            if not pane_id:
+                continue
+
+            # ペインの状態をチェック
+            status = self.tmux_manager.get_pane_status(pane_id)
+
+            # プロセスが終了していたら承認キューに追加
+            if not status.get("busy", False) and agent_info.get("task_number"):
+                # ペインの出力を取得
+                output = self.tmux_manager.get_pane_content(pane_id, lines=200)
+
+                # 変更ファイルを取得（gitで確認）
+                changed_files = []
+                if agent_info.get("worktree"):
+                    import subprocess
+                    try:
+                        result = subprocess.run(
+                            ["git", "diff", "--name-only", "HEAD"],
+                            cwd=agent_info["worktree"],
+                            capture_output=True,
+                            text=True,
+                        )
+                        if result.returncode == 0:
+                            changed_files = [f.strip() for f in result.stdout.split('\n') if f.strip()]
+                    except Exception:
+                        pass
+
+                # 承認キューに追加
+                approval_item = self.approval_queue.add_item(
+                    worker_id=agent_id,
+                    task_number=agent_info["task_number"],
+                    task_description=agent_info["task"],
+                    role=agent_info["role"],
+                    model=agent_info.get("model", "sonnet"),
+                    pane_id=pane_id,
+                    worktree=agent_info.get("worktree"),
+                    branch=agent_info.get("branch"),
+                    changed_files=changed_files,
+                    output=output,
+                )
+
+                if self.log_viewer_widget:
+                    self.log_viewer_widget.add_log(
+                        f"✅ {agent_id} 完了 - 承認待ち (ID: {approval_item.id})",
+                        level="INFO",
+                        agent_id="manager",
+                    )
+
+                # 承認キューウィジェットを更新
+                if self.approval_queue_widget:
+                    self.approval_queue_widget.add_worker_approval({
+                        'id': approval_item.id,
+                        'worker_id': agent_id,
+                        'task_description': agent_info["task"],
+                        'changed_files': changed_files,
+                    })
+
+                # エージェントリストから削除
+                del self.agents[agent_id]
 
     def _register_message_handlers(self) -> None:
         """メッセージハンドラーを登録"""
@@ -795,16 +1221,33 @@ class InteractiveDashboard(App):
     async def _spawn_task_agent(
         self,
         task_description: str,
-        worker_role: str,
-        model: str = "sonnet"
+        role: str,
+        model: Optional[str] = None,
+        task_number: Optional[int] = None,
     ) -> None:
         """Taskエージェントを起動する
 
         Args:
             task_description: タスクの説明
-            worker_role: ワーカーのロール
-            model: 使用するモデル
+            role: MAOロール名 (coder_backend, reviewer, tester, planner, researcher, auditor, etc.)
+            model: 使用するモデル（Noneの場合はロールのデフォルトモデルを使用）
+            task_number: タスク番号（シーケンシャルモード用）
         """
+        # ロール定義を取得
+        role_config = self.available_roles.get(role)
+        if not role_config:
+            if self.log_viewer_widget:
+                self.log_viewer_widget.add_log(
+                    f"❌ エラー: 未知のロール '{role}'",
+                    level="ERROR",
+                    agent_id="manager",
+                )
+            return
+
+        # モデル決定（指定なしの場合はロールのデフォルト）
+        if model is None:
+            model = role_config.get("model", "claude-sonnet-4-20250514")
+
         # エージェントIDを生成
         timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
         worker_num = len([a for a in self.agents if a.startswith("worker-")]) + 1
@@ -813,7 +1256,7 @@ class InteractiveDashboard(App):
 
         if self.log_viewer_widget:
             self.log_viewer_widget.add_log(
-                f"🚀 Starting {agent_id}: {task_description[:50]}...",
+                f"🚀 Starting {agent_id} ({role}): {task_description[:50]}...",
                 level="INFO",
                 agent_id="manager",
             )
@@ -822,7 +1265,7 @@ class InteractiveDashboard(App):
             # エージェントの状態を登録
             await self.state_manager.update_state(
                 agent_id=agent_id,
-                role=worker_role,
+                role=role,
                 status=AgentStatus.THINKING,
                 current_task=task_description[:50] + "...",
             )
@@ -833,7 +1276,7 @@ class InteractiveDashboard(App):
                     agent_id=agent_id,
                     status="running",
                     task=task_description[:50] + "...",
-                    role=worker_role,
+                    role=role,
                 )
 
             # Feedback モードの場合、ワーカー用 worktree を作成
@@ -887,7 +1330,7 @@ Branch: {worker_branch}
 {task_description}"""
 
                     # tmuxペイン内でclaude-codeを実行
-                    self.tmux_manager.execute_claude_code_in_pane(
+                    success = self.tmux_manager.execute_claude_code_in_pane(
                         pane_id=pane_id,
                         prompt=enhanced_prompt,
                         model=model,
@@ -895,12 +1338,31 @@ Branch: {worker_branch}
                         allow_unsafe=self.config.security.allow_unsafe_operations
                     )
 
+                    if not success:
+                        if self.log_viewer_widget:
+                            self.log_viewer_widget.add_log(
+                                f"❌ Failed to execute claude-code in tmux pane {pane_id}",
+                                level="ERROR",
+                                agent_id="manager",
+                            )
+                        return
+
+                    if self.log_viewer_widget:
+                        self.log_viewer_widget.add_log(
+                            f"✅ Successfully executed claude-code for {agent_id} in pane {pane_id}",
+                            level="INFO",
+                            agent_id="manager",
+                        )
+
                     self.agents[agent_id] = {
-                        "role": worker_role,
+                        "role": role,
                         "pane_id": pane_id,
                         "task": task_description,
                         "worktree": worker_worktree,
                         "branch": worker_branch,
+                        "model": model,
+                        "task_number": task_number,
+                        "start_time": datetime.utcnow().isoformat(),
                     }
 
                     if self.log_viewer_widget:
@@ -923,7 +1385,7 @@ Branch: {worker_branch}
                 )
                 asyncio.create_task(
                     self._execute_worker_agent(
-                        executor, agent_id, task_description, worker_role, model
+                        executor, agent_id, task_description, role, model
                     )
                 )
 
@@ -935,12 +1397,53 @@ Branch: {worker_branch}
                     agent_id="manager",
                 )
 
+    async def _start_next_task(self) -> None:
+        """次のタスクを開始"""
+        if self.current_task_index >= len(self.task_queue):
+            # 全タスク完了
+            if self.log_viewer_widget:
+                self.log_viewer_widget.add_log(
+                    "🎉 全タスクが完了しました！",
+                    level="INFO",
+                    agent_id="manager",
+                )
+            return
+
+        # 現在のタスクを取得
+        current_task = self.task_queue[self.current_task_index]
+        current_task['status'] = 'in_progress'
+
+        if self.log_viewer_widget:
+            self.log_viewer_widget.add_log(
+                f"▶️ タスク{current_task['task_num']}を開始: {current_task['description'][:50]}...",
+                level="INFO",
+                agent_id="manager",
+            )
+
+        # エージェントを起動
+        try:
+            await self._spawn_task_agent(
+                task_description=current_task['description'],
+                role=current_task['role'],
+                model=current_task['model'],
+                task_number=current_task['task_num'],
+            )
+        except Exception as e:
+            if self.log_viewer_widget:
+                self.log_viewer_widget.add_log(
+                    f"❌ タスク{current_task['task_num']}の起動に失敗: {str(e)}",
+                    level="ERROR",
+                    agent_id="manager",
+                )
+            import traceback
+            traceback.print_exc()
+
     async def _execute_worker_agent(
         self,
         executor: ClaudeCodeExecutor,
         agent_id: str,
         task_description: str,
-        worker_role: str,
+        role: str,
         model: str
     ) -> None:
         """ワーカーエージェントを実行（バックグラウンド）
@@ -949,7 +1452,7 @@ Branch: {worker_branch}
             executor: ClaudeCodeExecutor
             agent_id: エージェントID
             task_description: タスクの説明
-            worker_role: ワーカーのロール
+            role: MAOロール名
             model: 使用するモデル
         """
         try:
@@ -972,7 +1475,7 @@ Branch: {worker_branch}
                 # エージェントの状態を更新
                 await self.state_manager.update_state(
                     agent_id=agent_id,
-                    role=worker_role,
+                    role=role,
                     status=AgentStatus.IDLE,
                     current_task="完了",
                 )
@@ -983,7 +1486,7 @@ Branch: {worker_branch}
                         agent_id=agent_id,
                         status="completed",
                         task="完了",
-                        role=worker_role,
+                        role=role,
                     )
 
                 # CTOに結果を報告
@@ -1007,7 +1510,7 @@ Branch: {worker_branch}
                 # エージェントの状態を更新
                 await self.state_manager.update_state(
                     agent_id=agent_id,
-                    role=worker_role,
+                    role=role,
                     status=AgentStatus.ERROR,
                     current_task="エラー",
                     error_message=error,
@@ -1019,7 +1522,7 @@ Branch: {worker_branch}
                         agent_id=agent_id,
                         status="error",
                         task=f"エラー: {error[:30]}",
-                        role=worker_role,
+                        role=role,
                     )
 
         except Exception as e:
@@ -1095,76 +1598,75 @@ Branch: {worker_branch}
 ---
 """
 
+            # MAOロール一覧を動的生成
+            role_descriptions = []
+            for role_name, role_config in self.available_roles.items():
+                role_desc = f"   - **{role_name}**: {role_config.get('display_name', role_name)}"
+
+                # 責務を追加
+                responsibilities = role_config.get('responsibilities', [])
+                if responsibilities:
+                    role_desc += f"\n     用途: {', '.join(responsibilities[:3])}"
+
+                # デフォルトモデル
+                default_model = role_config.get('model', 'sonnet')
+                role_desc += f"\n     推奨モデル: {default_model}"
+
+                role_descriptions.append(role_desc)
+
+            roles_text = "\n".join(role_descriptions)
+
             # Claude Code経由でCTOに送信（スキルベース）
             result = await self.manager_executor.execute_agent(
-                prompt=f"""あなたはCTO（Chief Technology Officer）です。
+                prompt=f"""あなたはMAOシステムのCTO（Chief Technology Officer）です。
+
+# 役割と責務
+
 システム全体の技術責任を持ち、ワーカーの作業を監視・管理します。
+
 {history_text}
 現在のユーザーからの依頼: {message}
 {worktree_instructions}
 
 上記の会話履歴を踏まえて、以下の手順で作業してください：
 
-1. **タスク分解**
-   依頼を実行可能なサブタスクに分解します。
-   各サブタスクは明確で、ワーカーが理解できる粒度にしてください。
+1. **タスク分析と分解**
+   ユーザーからのリクエストを分析し、適切な粒度のタスクに分解します（1-5個）。
 
-2. **リスク評価**
-   各サブタスクのリスクレベル（低/中/高）を評価します。
+2. **ロール選択**
+   各タスクに最適なMAOロールを選択します。
 
-3. **ロール選択とワーカーへの割り当て**
-   各タスクの性質に応じて、最適なワーカーロールを選択してください：
+   **利用可能なMAOロール:**
+{roles_text}
 
-   **ロール選択ガイド:**
-   - **general-purpose**: コード実装、ファイル編集、複雑なロジック実装
-     例: 認証機能の実装、APIエンドポイント作成、バグ修正
+3. **ワーカー起動（重要！）**
+   ⚠️ **`/spawn-worker` スキルを使用してワーカーを起動してください:**
 
-   - **Bash**: コマンド実行、スクリプト実行、システム操作
-     例: git操作、ファイルのコピー/移動、パッケージインストール
+   ```
+   /spawn-worker --task "JWT認証を使ったログイン機能を実装" --role coder_backend --model sonnet
+   /spawn-worker --task "ログイン機能の単体テストと統合テストを作成" --role tester --model sonnet
+   ```
 
-   - **Explore**: コードベース探索、ファイル検索、構造分析
-     例: 既存の実装を調査、依存関係の把握、アーキテクチャ理解
-
-   - **Plan**: 計画立案、アーキテクチャ設計、詳細なタスク分解
-     例: 実装方針の策定、技術選定、設計ドキュメント作成
+   **各タスクごとに1回 `/spawn-worker` を呼び出してください。**
 
    **モデル選択ガイド:**
    - **opus**: 複雑な実装、重要な判断、アーキテクチャ設計
    - **sonnet**: 通常の実装タスク（推奨、バランス型）
    - **haiku**: シンプルなタスク、軽微な修正、調査タスク
+   - モデル指定が不要な場合は省略可能（ロールのデフォルトが使用されます）
 
-4. **ワーカーを起動（重要！）**
-   ⚠️ **必ず以下のフォーマットでタスクを記述してください:**
-
-   ```
-   Task 1: タスクの説明文
-   Role: general-purpose (または Explore, Bash, Plan)
-   Model: sonnet (または opus, haiku)
-
-   Task 2: 次のタスクの説明文
-   Role: Bash
-   Model: haiku
-   ```
-
-   **このフォーマットを使うと、自動的にワーカーが起動されます。**
-
-   ❌ 悪い例（ワーカーが起動されない）:
+   ❌ 悪い例（スキルを使わない）:
    - "まず、既存コードを調査します"
-   - "1. コード調査 2. 実装 3. テスト"
+   - "Task 1: コード調査"（テキストのみ）
 
-   ✅ 良い例（ワーカーが起動される）:
+   ✅ 良い例（スキルを使う）:
    ```
-   Task 1: 既存の認証システムコードを調査
-   Role: Explore
-   Model: haiku
-
-   Task 2: 新しい認証機能を実装
-   Role: general-purpose
-   Model: sonnet
+   /spawn-worker --task "既存の認証システムを調査" --role researcher --model haiku
+   /spawn-worker --task "認証機能を実装" --role coder_backend --model sonnet
    ```
 
 回答は簡潔に、具体的に行ってください。
-**タスクを割り当てる場合は、必ず上記のフォーマットを使用してください。**
+**タスクを割り当てる場合は、必ず `/spawn-worker` スキルを使用してください。**
 
 ---
 **Feedback改善モード完了フロー:**
@@ -1224,8 +1726,11 @@ Description: |
                 if self.feedback_branch and "[FEEDBACK_COMPLETED]" in response:
                     await self._handle_feedback_completion(response)
 
-                # タスク指示を抽出してワーカーを起動
-                await self._extract_and_spawn_tasks(response)
+                # スキル経由のワーカー起動を抽出（新方式）
+                await self._extract_worker_spawns(response)
+
+                # レガシー: テキスト形式のタスク指示を抽出（旧方式、非推奨）
+                # await self._extract_and_spawn_tasks(response)
 
                 if self.log_viewer_widget:
                     self.log_viewer_widget.add_log(

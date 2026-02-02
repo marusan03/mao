@@ -1,0 +1,98 @@
+name: spawn-worker
+display_name: "🚀 Spawn Agent"
+description: |
+  スキル: エージェントを起動する
+
+  CTOが使用するスキル。タスクを指定したMAOロールに割り当てて実行させます。
+
+  使用例:
+    /spawn-worker --task "認証システムを実装" --role coder_backend --model sonnet
+    /spawn-worker --task "既存コードを調査" --role researcher --model haiku
+
+category: agent-management
+version: "1.0.0"
+
+parameters:
+  - name: task
+    description: エージェントに割り当てるタスクの説明
+    required: true
+    type: string
+
+  - name: role
+    description: MAOロール (coder_backend, reviewer, tester, planner, researcher, auditor, skill_extractor, skill_reviewer)
+    required: true
+    type: string
+    choices:
+      - coder_backend
+      - reviewer
+      - tester
+      - planner
+      - researcher
+      - auditor
+      - skill_extractor
+      - skill_reviewer
+
+  - name: model
+    description: 使用するモデル (opus, sonnet, haiku) - 省略時はロールのデフォルトを使用
+    required: false
+    default: null
+    type: string
+    choices:
+      - opus
+      - sonnet
+      - haiku
+
+  - name: priority
+    description: タスクの優先度
+    required: false
+    default: "medium"
+    type: string
+
+script: |
+  #!/bin/bash
+  # このスキルはMAOシステム内部で処理されます
+  # 実際のエージェント起動はPythonコードで行います
+
+  echo "📋 Task queued: $TASK"
+  echo "🤖 Role: $ROLE"
+  echo "🧠 Model: $MODEL"
+  echo ""
+  echo "エージェントをタスクキューに追加しました。"
+  echo "シーケンシャルモードの場合、前のタスクの承認後に実行されます。"
+
+  # MAOシステムへの通知（JSON形式）
+  cat <<EOF
+  [MAO_WORKER_SPAWN]
+  {
+    "task": "$TASK",
+    "role": "$ROLE",
+    "model": "$MODEL",
+    "priority": "$PRIORITY"
+  }
+  [/MAO_WORKER_SPAWN]
+  EOF
+
+requires_approval: false
+risk_level: medium
+
+metadata:
+  author: MAO System
+  tags:
+    - agent
+    - task
+    - role
+  examples:
+    - description: バックエンド実装
+      command: /spawn-worker --task "REST APIを実装" --role coder_backend --model sonnet
+
+    - description: コードレビュー
+      command: /spawn-worker --task "認証コードをレビュー" --role reviewer
+
+    - description: テスト作成
+      command: /spawn-worker --task "単体テストを作成" --role tester --model sonnet
+
+    - description: アーキテクチャ設計
+      command: /spawn-worker --task "DB設計を立案" --role planner --model opus
+
+    - description: 技術調査
+      command: /spawn-worker --task "既存の認証システムを調査" --role researcher --model haiku
