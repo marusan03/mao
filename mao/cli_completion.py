@@ -201,7 +201,7 @@ def complete_agent_ids(ctx, param, incomplete):
     """
     # 一般的なエージェントID
     common_agents = [
-        "manager",
+        "cto",
         "cto",
         "agent-1",
         "agent-2",

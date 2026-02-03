@@ -215,3 +215,119 @@ class TestFeedbackManager:
         assert stats["by_priority"]["high"] == 1
         assert stats["by_priority"]["medium"] == 1
         assert stats["by_priority"]["low"] == 1
+
+    def test_repair_index_no_issues(self, tmp_path):
+        """repair_index: 問題がない場合"""
+        manager = FeedbackManager(project_path=tmp_path)
+
+        # フィードバックを追加（正常に追加される）
+        manager.add_feedback("Test 1", "Desc", agent_id="manager", session_id="session_1")
+        manager.add_feedback("Test 2", "Desc", agent_id="manager", session_id="session_1")
+
+        # 修復実行
+        result = manager.repair_index()
+
+        assert result["total_files"] == 2
+        assert result["in_index_before"] == 2
+        assert result["repaired"] is False
+        assert len(result["missing_in_index"]) == 0
+
+    def test_repair_index_with_missing_entries(self, tmp_path):
+        """repair_index: index.jsonに欠落がある場合"""
+        import json
+        manager = FeedbackManager(project_path=tmp_path)
+
+        # フィードバックを正常に追加
+        fb1 = manager.add_feedback("Test 1", "Desc", agent_id="manager", session_id="session_1")
+
+        # 2つ目のフィードバックを個別ファイルのみ作成（index.jsonに追加しない）
+        fb2_id = "fb_20260201_120000_test1234"
+        fb2_data = {
+            "id": fb2_id,
+            "title": "Orphaned feedback",
+            "description": "This is not in index",
+            "category": "bug",
+            "priority": "high",
+            "agent_id": "manager",
+            "session_id": "session_1",
+            "created_at": "2026-02-01T12:00:00",
+            "status": "open",
+            "metadata": {}
+        }
+
+        # 個別ファイルのみ作成
+        orphan_file = manager.feedback_dir / f"{fb2_id}.json"
+        with open(orphan_file, "w") as f:
+            json.dump(fb2_data, f, indent=2, ensure_ascii=False)
+
+        # 修復前の状態確認
+        feedbacks_before = manager.list_feedbacks()
+        assert len(feedbacks_before) == 1  # index.jsonには1つだけ
+
+        # 修復実行
+        result = manager.repair_index()
+
+        assert result["total_files"] == 2
+        assert result["in_index_before"] == 1
+        assert result["repaired"] is True
+        assert len(result["missing_in_index"]) == 1
+        assert fb2_id in result["missing_in_index"]
+
+        # 修復後の確認
+        feedbacks_after = manager.list_feedbacks()
+        assert len(feedbacks_after) == 2  # 2つになっているはず
+
+        # 孤立していたフィードバックが取得できることを確認
+        orphan = manager.get_feedback(fb2_id)
+        assert orphan is not None
+        assert orphan.title == "Orphaned feedback"
+
+    def test_index_consistency_after_add(self, tmp_path):
+        """add_feedback後のindex.jsonと個別ファイルの整合性"""
+        import json
+        manager = FeedbackManager(project_path=tmp_path)
+
+        # フィードバックを追加
+        fb = manager.add_feedback("Test", "Desc", agent_id="manager", session_id="session_1")
+
+        # index.jsonに存在することを確認
+        with open(manager.index_file) as f:
+            index_data = json.load(f)
+
+        assert len(index_data) == 1
+        assert index_data[0]["id"] == fb.id
+        assert index_data[0]["title"] == "Test"
+
+        # 個別ファイルに存在することを確認
+        feedback_file = manager.feedback_dir / f"{fb.id}.json"
+        assert feedback_file.exists()
+
+        with open(feedback_file) as f:
+            file_data = json.load(f)
+
+        assert file_data["id"] == fb.id
+        assert file_data["title"] == "Test"
+
+    def test_index_consistency_after_update(self, tmp_path):
+        """update_status後のindex.jsonと個別ファイルの整合性"""
+        import json
+        manager = FeedbackManager(project_path=tmp_path)
+
+        # フィードバックを追加
+        fb = manager.add_feedback("Test", "Desc", agent_id="manager", session_id="session_1")
+
+        # ステータスを更新
+        manager.update_status(fb.id, "completed")
+
+        # index.jsonが更新されていることを確認
+        with open(manager.index_file) as f:
+            index_data = json.load(f)
+
+        assert index_data[0]["status"] == "completed"
+
+        # 個別ファイルも更新されていることを確認
+        feedback_file = manager.feedback_dir / f"{fb.id}.json"
+        with open(feedback_file) as f:
+            file_data = json.load(f)
+
+        assert file_data["status"] == "completed"

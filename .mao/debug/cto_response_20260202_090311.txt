@@ -1,0 +1,40 @@
+了解しました！**メモリのみ**で実装します。
+
+---
+
+## ✅ Phase 0完了: 設計確定
+
+**実装方針:**
+- **AgentProgressQueue**: メモリベース（リアルタイム性重視、軽量）
+- **ポーリング頻度**: 2秒ごと
+- **メッセージフィルタリング**: `thinking`, `action`, `result`, `error` のみ
+- **スキル化**: `/watch-agents` で監視ON/OFF可能
+
+---
+
+## 🎯 タスク分解
+
+このタスクを以下の3つに分解しました：
+
+### Task 1: **AgentProgressQueue実装**
+- メモリベースの進捗メッセージキュー
+- エージェントが進捗を送信するAPI
+- CTOがポーリングで取得するAPI
+- **担当**: Backend Coder
+
+### Task 2: **AgentLoggerとの統合**
+- `AgentLogger` から `AgentProgressQueue` にメッセージを送信
+- `thinking()`, `action()`, `result()`, `error()` メソッドを拡張
+- **担当**: Backend Coder
+
+### Task 3: **CTO監視ループとUI統合**
+- `spawn_agent()` 後にキューをポーリング
+- CTOチャットに進捗を表示
+- エージェント完了後に監視終了
+- **担当**: Backend Coder
+
+---
+
+## 🚀 エージェント起動
+
+3つのタスクを1つのBackend Coderエージェントにまとめて依頼します（関連性が高いため）:

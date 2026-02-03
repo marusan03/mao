@@ -81,12 +81,33 @@ class FeedbackManager:
         return []
 
     def _save_index(self, feedbacks: List[Dict[str, Any]]) -> None:
-        """インデックスを保存"""
+        """インデックスを保存（アトミック書き込み）"""
+        import tempfile
+        import os
+
         try:
-            with open(self.index_file, "w") as f:
+            # 一時ファイルに書き込み
+            fd, temp_path = tempfile.mkstemp(
+                dir=self.feedback_dir,
+                prefix=".index_",
+                suffix=".json.tmp"
+            )
+
+            with os.fdopen(fd, "w") as f:
                 json.dump(feedbacks, f, indent=2, ensure_ascii=False)
+
+            # アトミックにリネーム（既存ファイルを上書き）
+            os.replace(temp_path, self.index_file)
+
         except Exception as e:
             self.logger.error(f"Failed to save feedback index: {e}")
+            # 一時ファイルが残っている場合は削除
+            if 'temp_path' in locals() and Path(temp_path).exists():
+                try:
+                    os.unlink(temp_path)
+                except:
+                    pass
+            raise  # エラーを上位に伝播
 
     def add_feedback(
         self,
@@ -128,18 +149,28 @@ class FeedbackManager:
             metadata=metadata,
         )
 
-        # インデックスに追加
-        feedbacks = self._load_index()
-        feedbacks.append(feedback.to_dict())
-        self._save_index(feedbacks)
-
-        # 個別ファイルに保存
+        # 個別ファイルに保存（先に実行してエラーチェック）
         feedback_file = self.feedback_dir / f"{feedback_id}.json"
         try:
             with open(feedback_file, "w") as f:
                 json.dump(feedback.to_dict(), f, indent=2, ensure_ascii=False)
         except Exception as e:
             self.logger.error(f"Failed to save feedback file: {e}")
+            raise  # ファイル書き込み失敗時は処理を中断
+
+        # インデックスに追加（個別ファイル保存成功後のみ）
+        try:
+            feedbacks = self._load_index()
+            feedbacks.append(feedback.to_dict())
+            self._save_index(feedbacks)
+        except Exception as e:
+            # index.json更新失敗時は個別ファイルを削除してロールバック
+            self.logger.error(f"Failed to update index, rolling back: {e}")
+            try:
+                feedback_file.unlink()
+            except:
+                pass
+            raise
 
         self.logger.info(f"Added feedback: {feedback_id} - {title}")
         return feedback
@@ -213,25 +244,39 @@ class FeedbackManager:
         if not feedback:
             return False
 
+        # 古いステータスを保存（ロールバック用）
+        old_status = feedback.status
         feedback.status = status
 
-        # インデックスを更新
-        feedbacks = self._load_index()
-        for i, fb in enumerate(feedbacks):
-            if fb["id"] == feedback_id:
-                feedbacks[i]["status"] = status
-                break
-
-        self._save_index(feedbacks)
-
-        # 個別ファイルを更新
+        # 個別ファイルを更新（先に実行）
         feedback_file = self.feedback_dir / f"{feedback_id}.json"
         try:
             with open(feedback_file, "w") as f:
                 json.dump(feedback.to_dict(), f, indent=2, ensure_ascii=False)
-            return True
         except Exception as e:
-            self.logger.error(f"Failed to update feedback: {e}")
+            self.logger.error(f"Failed to update feedback file: {e}")
+            return False
+
+        # インデックスを更新（個別ファイル更新成功後のみ）
+        try:
+            feedbacks = self._load_index()
+            for i, fb in enumerate(feedbacks):
+                if fb["id"] == feedback_id:
+                    feedbacks[i]["status"] = status
+                    break
+
+            self._save_index(feedbacks)
+            return True
+
+        except Exception as e:
+            # index.json更新失敗時は個別ファイルをロールバック
+            self.logger.error(f"Failed to update index, rolling back: {e}")
+            feedback.status = old_status
+            try:
+                with open(feedback_file, "w") as f:
+                    json.dump(feedback.to_dict(), f, indent=2, ensure_ascii=False)
+            except:
+                pass
             return False
 
     def delete_feedback(self, feedback_id: str) -> bool:
@@ -289,3 +334,45 @@ class FeedbackManager:
             stats["by_priority"][priority] = stats["by_priority"].get(priority, 0) + 1
 
         return stats
+
+    def repair_index(self) -> Dict[str, Any]:
+        """index.jsonを修復（個別ファイルから再構築）
+
+        Returns:
+            修復結果の統計情報
+        """
+        # 既存のindex.jsonを読み込み
+        existing_feedbacks = self._load_index()
+        existing_ids = {fb["id"] for fb in existing_feedbacks}
+
+        # 個別ファイルから全feedbackを読み込み
+        all_feedbacks = []
+        missing_in_index = []
+
+        for feedback_file in sorted(self.feedback_dir.glob("fb_*.json")):
+            try:
+                with open(feedback_file) as f:
+                    fb_data = json.load(f)
+                    all_feedbacks.append(fb_data)
+
+                    # index.jsonに存在しないfeedbackを記録
+                    if fb_data["id"] not in existing_ids:
+                        missing_in_index.append(fb_data["id"])
+
+            except Exception as e:
+                self.logger.error(f"Failed to load {feedback_file}: {e}")
+
+        # 作成日時でソート
+        all_feedbacks.sort(key=lambda x: x.get("created_at", ""))
+
+        # index.jsonを更新
+        if missing_in_index:
+            self._save_index(all_feedbacks)
+            self.logger.info(f"Repaired index.json: added {len(missing_in_index)} missing feedbacks")
+
+        return {
+            "total_files": len(all_feedbacks),
+            "in_index_before": len(existing_ids),
+            "missing_in_index": missing_in_index,
+            "repaired": len(missing_in_index) > 0,
+        }

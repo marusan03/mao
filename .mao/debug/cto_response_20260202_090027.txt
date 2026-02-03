@@ -1,0 +1,87 @@
+完璧です。既存実装が理解できました。それでは、提案を作成します。
+
+## 📚 Phase 0完了: 既存アーキテクチャの理解
+
+以下の実装を確認しました：
+
+### 既存の仕組み:
+1. **ApprovalQueue** (`mao/orchestrator/approval_queue.py`):
+   - エージェント完了後の承認管理
+   - `.mao/approval_queue/index.json` にキュー保存
+   - `PENDING`, `APPROVED`, `REJECTED` ステータス管理
+
+2. **AgentLogger** (`mao/orchestrator/agent_logger.py`):
+   - エージェントごとに `.mao/logs/<agent_id>.log` を作成
+   - `info()`, `thinking()`, `action()`, `result()` などのログAPI
+   - tmuxペインで `tail -f` してリアルタイム表示
+
+3. **Dashboard** (`mao/ui/dashboard.py`):
+   - `spawn_agent()` でエージェント起動
+   - `AgentStatusWidget`, `LogViewerWidget` でUI更新
+
+---
+
+## 🎯 提案: **オプション2 + スキル化（ハイブリッド）**
+
+ユーザーの要望に合わせて、以下の設計を提案します：
+
+### 設計案:
+
+#### 1. **AgentProgressQueue** クラス（新規作成）
+`ApprovalQueue` のような進捗メッセージキュー
+
+**場所**: `mao/orchestrator/agent_progress_queue.py`
+
+**機能**:
+- エージェントが進捗を送信: `progress_queue.add_message(agent_id, message, log_level)`
+- CTOが定期的にポーリング: `progress_queue.get_new_messages(since_timestamp)`
+- メッセージタイプ: `thinking`, `action`, `result`, `error`
+
+**データ構造**:
+```python
+@dataclass
+class ProgressMessage:
+    id: str
+    agent_id: str
+    timestamp: str
+    log_level: str  # "thinking", "action", "result", "error"
+    message: str
+```
+
+#### 2. **CTOの監視ループ（統合）**
+`spawn_agent()` 後、CTOはキューを監視して進捗をCTOチャットに表示
+
+**実装場所**: `mao/ui/dashboard.py` の `spawn_agent()` メソッドを拡張
+
+**動作フロー**:
+```
+1. CTO: `/spawn-agent --task "..." --role coder_backend`
+2. エージェント起動
+3. CTO: 進捗キューを定期的にポーリング開始（非ブロッキング）
+4. エージェントがログ出力 → AgentLogger → ProgressQueue に送信
+5. CTO: キューから新メッセージを取得 → CTOチャットに表示
+   例: "[Agent a74e8ed] 💭 既存コードを読み込み中..."
+6. エージェント完了 → ApprovalQueue に送信
+7. CTO: 監視ループ終了、結果を表示
+```
+
+#### 3. **スキル化（オプション）**
+`/watch-agents` スキルで監視ON/OFF切り替え可能
+
+---
+
+## 🤔 質問
+
+この設計案についてどう思いますか？特に：
+
+1. **ProgressQueueの保存先**: メモリのみ or ファイル永続化？
+   - メモリのみ: 軽量、リアルタイム性高い
+   - ファイル: デバッグ可能、クラッシュ時も復元可能
+
+2. **ポーリング頻度**: どのくらいの頻度で確認？
+   - 提案: 2秒ごと（エージェントが複数の場合も対応可能）
+
+3. **メッセージのフィルタリング**: 全ログ表示 or 重要なもののみ？
+   - 提案: `thinking`, `action`, `result`, `error` のみ（`debug` は除外）
+
+これで進めてよければ、エージェントにタスクを割り当てます。

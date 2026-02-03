@@ -1,0 +1,101 @@
+## ✅ 実装完了
+
+**エージェント進捗監視システム**を実装しました！
+
+---
+
+## 📊 実装内容
+
+### 1. **AgentProgressQueue** (`mao/orchestrator/agent_progress_queue.py`)
+- メモリベースの進捗メッセージキュー
+- シングルトンパターンで実装
+- スレッドセーフ（`threading.Lock`）
+- メッセージタイプ: `thinking`, `action`, `result`, `error`
+
+**主要API:**
+- `add_message(agent_id, role_name, log_level, message)` - メッセージ追加
+- `get_new_messages(since_timestamp)` - 新しいメッセージ取得
+- `get_messages_for_agent(agent_id)` - 特定エージェントのメッセージ取得
+- `clear()` - クリア
+
+### 2. **AgentLogger統合** (`mao/orchestrator/agent_logger.py`)
+- `thinking()`, `action()`, `result()`, `error()` メソッドを拡張
+- ログファイル出力に加えて、`AgentProgressQueue` にもメッセージを送信
+- 既存のロギング機能はそのまま維持
+
+### 3. **Dashboard監視ループ** (`mao/ui/dashboard.py`)
+- `_start_progress_monitoring(agent_id, role_name)` - 監視開始
+- `_monitor_agent_progress(agent_id, role_name)` - ポーリングループ（2秒ごと）
+- エージェント起動時に自動的に監視開始
+- エージェント完了時に自動的に監視終了
+- 進捗メッセージを `AgentActivityWidget` に表示
+
+### 4. **ManagerChatWidget拡張** (`mao/ui/widgets/manager_chat.py`)
+- `add_agent_progress_message()` メソッド追加
+- エージェント進捗メッセージを整形して表示
+- フォーマット: `[Agent <id> - <role>] <emoji> <message>`
+
+---
+
+## 🎯 動作フロー
+
+```
+1. CTO: エージェント起動 (spawn_agent)
+   ↓
+2. Dashboard: AgentLogger 作成
+   ↓
+3. AgentLogger: AgentProgressQueue に接続
+   ↓
+4. Dashboard: 監視ループ開始 (_start_progress_monitoring)
+   ↓
+5. エージェント: thinking(), action(), result(), error() を呼び出し
+   ↓
+6. AgentLogger: ログファイル + ProgressQueue に送信
+   ↓
+7. Dashboard: 2秒ごとに ProgressQueue をポーリング
+   ↓
+8. Dashboard: 新しいメッセージを AgentActivityWidget に表示
+   ↓
+9. エージェント完了: 監視ループ終了
+```
+
+---
+
+## ✅ テスト結果
+
+### 1. **構文チェック** ✅
+- `agent_progress_queue.py` ✅
+- `agent_logger.py` ✅
+- `dashboard.py` ✅
+- `manager_chat.py` ✅
+
+### 2. **インポートテスト** ✅
+- `AgentProgressQueue` ✅
+- `AgentLogger` ✅
+
+### 3. **単体テスト** ✅
+- メッセージ追加 ✅
+- 特定エージェントのメッセージ取得 ✅
+- タイムスタンプベースの新規メッセージ取得 ✅
+- クリーンアップ ✅
+
+### 4. **統合テスト** ✅
+- AgentLogger → ProgressQueue 連携 ✅
+- 全ログレベル（thinking, action, result, error）✅
+
+---
+
+## 🎉 完成
+
+これで、CTOは以下のようなリアルタイム進捗を確認できるようになりました：
+
+```
+[Agent a74e8ed - Backend Coder] 💭 既存コードを読み込み中...
+[Agent a74e8ed - Backend Coder] 🔧 [Read] calculator.py を読み込み
+[Agent a8e3702 - Tester] 💭 テストケースを設計中...
+[Agent a74e8ed - Backend Coder] ✓ 実装完了
+[Agent a8e3702 - Tester] 🔧 [Write] test_calculator.py を作成
+[Agent a8e3702 - Tester] ✓ テスト作成完了
+```
+
+**次のステップ**: 実際にエージェントを起動してリアルタイム監視を確認できます！

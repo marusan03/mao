@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Contact Form</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            padding: 40px;
+            width: 100%;
+            max-width: 500px;
+        }
+
+        .form-header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .form-header h1 {
+            color: #333;
+            font-size: 28px;
+            margin-bottom: 10px;
+        }
+
+        .form-header p {
+            color: #666;
+            font-size: 14px;
+        }
+
+        .form-group {
+            margin-bottom: 24px;
+        }
+
+        .form-group label {
+            display: block;
+            color: #333;
+            font-weight: 600;
+            margin-bottom: 8px;
+            font-size: 14px;
+        }
+
+        .required {
+            color: #e74c3c;
+            margin-left: 4px;
+        }
+
+        .form-group input,
+        .form-group textarea {
+            width: 100%;
+            padding: 12px 16px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 15px;
+            font-family: inherit;
+            transition: border-color 0.3s, box-shadow 0.3s;
+            background: #fafafa;
+        }
+
+        .form-group input:focus,
+        .form-group textarea:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+            background: white;
+        }
+
+        .form-group input.error,
+        .form-group textarea.error {
+            border-color: #e74c3c;
+        }
+
+        .form-group input.error:focus,
+        .form-group textarea.error:focus {
+            box-shadow: 0 0 0 3px rgba(231, 76, 60, 0.1);
+        }
+
+        .form-group textarea {
+            resize: vertical;
+            min-height: 120px;
+            max-height: 300px;
+        }
+
+        .error-message {
+            color: #e74c3c;
+            font-size: 13px;
+            margin-top: 6px;
+            display: none;
+            animation: fadeIn 0.3s;
+        }
+
+        .error-message.show {
+            display: block;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(-5px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .submit-button {
+            width: 100%;
+            padding: 14px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            margin-top: 10px;
+        }
+
+        .submit-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px rgba(102, 126, 234, 0.4);
+        }
+
+        .submit-button:active {
+            transform: translateY(0);
+        }
+
+        .submit-button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .success-message {
+            display: none;
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+            padding: 16px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            animation: fadeIn 0.3s;
+        }
+
+        .success-message.show {
+            display: block;
+        }
+
+        .char-count {
+            text-align: right;
+            font-size: 12px;
+            color: #999;
+            margin-top: 6px;
+        }
+
+        /* Responsive Design */
+        @media (max-width: 600px) {
+            .container {
+                padding: 30px 20px;
+            }
+
+            .form-header h1 {
+                font-size: 24px;
+            }
+
+            .form-group input,
+            .form-group textarea {
+                font-size: 16px; /* Prevents zoom on iOS */
+            }
+        }
+
+        @media (max-width: 400px) {
+            .container {
+                padding: 20px 15px;
+            }
+
+            .form-header {
+                margin-bottom: 20px;
+            }
+
+            .form-group {
+                margin-bottom: 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="form-header">
+            <h1>Contact Us</h1>
+            <p>We'd love to hear from you. Fill out the form below.</p>
+        </div>
+
+        <div id="successMessage" class="success-message">
+            Thank you for your message! We'll get back to you soon.
+        </div>
+
+        <form id="contactForm" novalidate>
+            <div class="form-group">
+                <label for="name">
+                    Name<span class="required">*</span>
+                </label>
+                <input
+                    type="text"
+                    id="name"
+                    name="name"
+                    placeholder="Enter your full name"
+                    required
+                    autocomplete="name"
+                >
+                <div id="nameError" class="error-message"></div>
+            </div>
+
+            <div class="form-group">
+                <label for="email">
+                    Email<span class="required">*</span>
+                </label>
+                <input
+                    type="email"
+                    id="email"
+                    name="email"
+                    placeholder="your.email@example.com"
+                    required
+                    autocomplete="email"
+                >
+                <div id="emailError" class="error-message"></div>
+            </div>
+
+            <div class="form-group">
+                <label for="message">
+                    Message<span class="required">*</span>
+                </label>
+                <textarea
+                    id="message"
+                    name="message"
+                    placeholder="Write your message here..."
+                    required
+                    maxlength="1000"
+                ></textarea>
+                <div class="char-count">
+                    <span id="charCount">0</span>/1000 characters
+                </div>
+                <div id="messageError" class="error-message"></div>
+            </div>
+
+            <button type="submit" class="submit-button">
+                Send Message
+            </button>
+        </form>
+    </div>
+
+    <script>
+        // Form elements
+        const form = document.getElementById('contactForm');
+        const nameInput = document.getElementById('name');
+        const emailInput = document.getElementById('email');
+        const messageInput = document.getElementById('message');
+        const submitButton = form.querySelector('.submit-button');
+        const successMessage = document.getElementById('successMessage');
+
+        // Error message elements
+        const nameError = document.getElementById('nameError');
+        const emailError = document.getElementById('emailError');
+        const messageError = document.getElementById('messageError');
+
+        // Character counter
+        const charCount = document.getElementById('charCount');
+
+        // Email validation regex
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+        // Update character count
+        messageInput.addEventListener('input', function() {
+            charCount.textContent = this.value.length;
+        });
+
+        // Real-time validation on blur
+        nameInput.addEventListener('blur', function() {
+            validateName();
+        });
+
+        emailInput.addEventListener('blur', function() {
+            validateEmail();
+        });
+
+        messageInput.addEventListener('blur', function() {
+            validateMessage();
+        });
+
+        // Clear error on input
+        nameInput.addEventListener('input', function() {
+            if (this.value.trim()) {
+                clearError(nameInput, nameError);
+            }
+        });
+
+        emailInput.addEventListener('input', function() {
+            if (this.value.trim()) {
+                clearError(emailInput, emailError);
+            }
+        });
+
+        messageInput.addEventListener('input', function() {
+            if (this.value.trim()) {
+                clearError(messageInput, messageError);
+            }
+        });
+
+        // Validation functions
+        function validateName() {
+            const value = nameInput.value.trim();
+
+            if (!value) {
+                showError(nameInput, nameError, 'Name is required');
+                return false;
+            }
+
+            if (value.length < 2) {
+                showError(nameInput, nameError, 'Name must be at least 2 characters');
+                return false;
+            }
+
+            clearError(nameInput, nameError);
+            return true;
+        }
+
+        function validateEmail() {
+            const value = emailInput.value.trim();
+
+            if (!value) {
+                showError(emailInput, emailError, 'Email is required');
+                return false;
+            }
+
+            if (!emailRegex.test(value)) {
+                showError(emailInput, emailError, 'Please enter a valid email address');
+                return false;
+            }
+
+            clearError(emailInput, emailError);
+            return true;
+        }
+
+        function validateMessage() {
+            const value = messageInput.value.trim();
+
+            if (!value) {
+                showError(messageInput, messageError, 'Message is required');
+                return false;
+            }
+
+            if (value.length < 10) {
+                showError(messageInput, messageError, 'Message must be at least 10 characters');
+                return false;
+            }
+
+            clearError(messageInput, messageError);
+            return true;
+        }
+
+        function showError(input, errorElement, message) {
+            input.classList.add('error');
+            errorElement.textContent = message;
+            errorElement.classList.add('show');
+        }
+
+        function clearError(input, errorElement) {
+            input.classList.remove('error');
+            errorElement.classList.remove('show');
+        }
+
+        // Form submission
+        form.addEventListener('submit', function(e) {
+            e.preventDefault();
+
+            // Validate all fields
+            const isNameValid = validateName();
+            const isEmailValid = validateEmail();
+            const isMessageValid = validateMessage();
+
+            if (isNameValid && isEmailValid && isMessageValid) {
+                // Disable submit button
+                submitButton.disabled = true;
+                submitButton.textContent = 'Sending...';
+
+                // Simulate form submission (replace with actual API call)
+                setTimeout(function() {
+                    // Hide form
+                    form.style.display = 'none';
+
+                    // Show success message
+                    successMessage.classList.add('show');
+
+                    // Reset form
+                    form.reset();
+                    charCount.textContent = '0';
+
+                    // Re-enable button and show form again after 3 seconds
+                    setTimeout(function() {
+                        successMessage.classList.remove('show');
+                        form.style.display = 'block';
+                        submitButton.disabled = false;
+                        submitButton.textContent = 'Send Message';
+                    }, 3000);
+                }, 1000);
+            }
+        });
+
+        // Prevent form submission on Enter key in input fields (but allow in textarea)
+        nameInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                emailInput.focus();
+            }
+        });
+
+        emailInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                messageInput.focus();
+            }
+        });
+    </script>
+</body>
+</html>

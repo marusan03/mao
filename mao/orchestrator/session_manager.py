@@ -14,7 +14,7 @@ import logging
 class ChatMessage:
     """チャットメッセージ"""
 
-    role: str  # "user", "manager", "system"
+    role: str  # "user", "cto", "system"
     content: str
     timestamp: str
     metadata: Optional[Dict[str, Any]] = None
@@ -295,7 +295,7 @@ class SessionManager:
             統計情報
         """
         user_messages = sum(1 for msg in self.messages if msg.role == "user")
-        manager_messages = sum(1 for msg in self.messages if msg.role == "manager")
+        cto_messages = sum(1 for msg in self.messages if msg.role == "cto")
         system_messages = sum(1 for msg in self.messages if msg.role == "system")
 
         return {
@@ -303,7 +303,7 @@ class SessionManager:
             "title": self.metadata.get("title", ""),
             "total_messages": len(self.messages),
             "user_messages": user_messages,
-            "manager_messages": manager_messages,
+            "cto_messages": cto_messages,
             "system_messages": system_messages,
             "created_at": self.metadata.get("created_at"),
             "updated_at": self.metadata.get("updated_at"),

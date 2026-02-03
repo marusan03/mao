@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from enum import Enum
 import subprocess
 import platform
+import asyncio
+import inspect
 
 
 class RiskLevel(str, Enum):
@@ -22,7 +24,7 @@ class RiskLevel(str, Enum):
 class ApprovalRequest:
     """承認リクエスト"""
     request_id: str
-    worker_id: str
+    agent_id: str
     task_description: str
     operation: str
     risk_level: RiskLevel
@@ -84,9 +86,9 @@ class ApprovalRequestWidget(Container, can_focus=True):
                     classes="risk-badge"
                 )
 
-            # ワーカー情報
+            # エージェント情報
             yield Static(
-                f"ワーカー: {self.request.worker_id}",
+                f"エージェント: {self.request.agent_id}",
                 classes="agent-info"
             )
 
@@ -149,12 +151,20 @@ class ApprovalRequestWidget(Container, can_focus=True):
 
         if button_id and button_id.startswith("approve-"):
             if self.on_approve_callback:
-                self.on_approve_callback(self.request.request_id)
+                # コールバックが async の場合は asyncio.create_task で実行
+                if inspect.iscoroutinefunction(self.on_approve_callback):
+                    asyncio.create_task(self.on_approve_callback(self.request.request_id))
+                else:
+                    self.on_approve_callback(self.request.request_id)
             self.remove()
 
         elif button_id and button_id.startswith("reject-"):
             if self.on_reject_callback:
-                self.on_reject_callback(self.request.request_id)
+                # コールバックが async の場合は asyncio.create_task で実行
+                if inspect.iscoroutinefunction(self.on_reject_callback):
+                    asyncio.create_task(self.on_reject_callback(self.request.request_id))
+                else:
+                    self.on_reject_callback(self.request.request_id)
             self.remove()
 
         elif button_id and button_id.startswith("details-"):
@@ -169,13 +179,21 @@ class ApprovalRequestWidget(Container, can_focus=True):
     def action_approve(self) -> None:
         """承認アクション"""
         if self.on_approve_callback:
-            self.on_approve_callback(self.request.request_id)
+            # コールバックが async の場合は asyncio.create_task で実行
+            if inspect.iscoroutinefunction(self.on_approve_callback):
+                asyncio.create_task(self.on_approve_callback(self.request.request_id))
+            else:
+                self.on_approve_callback(self.request.request_id)
         self.remove()
 
     def action_reject(self) -> None:
         """却下アクション"""
         if self.on_reject_callback:
-            self.on_reject_callback(self.request.request_id)
+            # コールバックが async の場合は asyncio.create_task で実行
+            if inspect.iscoroutinefunction(self.on_reject_callback):
+                asyncio.create_task(self.on_reject_callback(self.request.request_id))
+            else:
+                self.on_reject_callback(self.request.request_id)
         self.remove()
 
 
@@ -282,7 +300,7 @@ class ApprovalQueueWidget(Container, can_focus=True):
             icon = risk_icons.get(request.risk_level, "❓")
 
             title = f"{icon} MAO - 承認リクエスト"
-            message = f"{request.worker_id}: {request.operation}\nリスク: {request.risk_level}"
+            message = f"{request.agent_id}: {request.operation}\nリスク: {request.risk_level}"
 
             # AppleScriptで通知を送信
             script = f'''
@@ -332,13 +350,21 @@ class ApprovalQueueWidget(Container, can_focus=True):
         """選択中のリクエストを承認"""
         request = self._get_selected_request()
         if request and self.on_approve_callback:
-            self.on_approve_callback(request.request_id)
+            # コールバックが async の場合は asyncio.create_task で実行
+            if inspect.iscoroutinefunction(self.on_approve_callback):
+                asyncio.create_task(self.on_approve_callback(request.request_id))
+            else:
+                self.on_approve_callback(request.request_id)
 
     def action_reject_selected(self) -> None:
         """選択中のリクエストを却下"""
         request = self._get_selected_request()
         if request and self.on_reject_callback:
-            self.on_reject_callback(request.request_id)
+            # コールバックが async の場合は asyncio.create_task で実行
+            if inspect.iscoroutinefunction(self.on_reject_callback):
+                asyncio.create_task(self.on_reject_callback(request.request_id))
+            else:
+                self.on_reject_callback(request.request_id)
 
     def _highlight_selected(self) -> None:
         """選択中のリクエストをハイライト表示"""

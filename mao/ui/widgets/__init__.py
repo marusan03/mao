@@ -3,7 +3,7 @@
 from .header import HeaderWidget
 from .agent_list import AgentListWidget
 from .log_viewer_simple import SimpleLogViewer
-from .manager_chat import ManagerChatWidget, ManagerChatInput, ManagerChatPanel
+from .cto_chat import CTOChatWidget, CTOChatInput, CTOChatPanel
 from .progress_widget import TaskProgressWidget, AgentActivityWidget, MetricsWidget
 from .approval_request import (
     ApprovalRequest,
@@ -16,9 +16,9 @@ __all__ = [
     "HeaderWidget",
     "AgentListWidget",
     "SimpleLogViewer",
-    "ManagerChatWidget",
-    "ManagerChatInput",
-    "ManagerChatPanel",
+    "CTOChatWidget",
+    "CTOChatInput",
+    "CTOChatPanel",
     "TaskProgressWidget",
     "AgentActivityWidget",
     "MetricsWidget",

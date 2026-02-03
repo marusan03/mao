@@ -2,7 +2,6 @@
 Task dispatcher for launching agents
 """
 import yaml
-import re
 from pathlib import Path
 from typing import Dict, Any, Optional, List, TYPE_CHECKING
 from datetime import datetime
@@ -12,7 +11,11 @@ if TYPE_CHECKING:
     from mao.orchestrator.agent_executor import AgentExecutor
     from mao.orchestrator.agent_logger import AgentLogger
 
-from mao.orchestrator.message_queue import MessageQueue, MessageType, MessagePriority
+from mao.orchestrator.message_queue import MessageQueue
+from mao.orchestrator.skill_manager import SkillManager
+from mao.orchestrator.skill_formatter import SkillFormatter
+from mao.orchestrator.task_decomposer import TaskDecomposerMixin
+from mao.orchestrator.task_reporter import TaskReporterMixin
 
 
 class SubTask:
@@ -52,7 +55,7 @@ class SubTask:
         }
 
 
-class TaskDispatcher:
+class TaskDispatcher(TaskDecomposerMixin, TaskReporterMixin):
     """Claude Code の Task tool を使ってエージェントを起動"""
 
     def __init__(
@@ -83,6 +86,10 @@ class TaskDispatcher:
         # メッセージキュー
         self.message_queue = MessageQueue(project_path=self.project_path)
 
+        # スキル管理
+        self.skill_manager = SkillManager(self.project_path) if self.project_path else None
+        self.skill_formatter = SkillFormatter()
+
     def _load_roles(self) -> Dict[str, Any]:
         """全ロール定義を読み込み"""
         roles = {}
@@ -109,6 +116,20 @@ class TaskDispatcher:
                     print(f"Warning: Failed to load role from {yaml_file}: {e}")
 
         return roles
+
+    def _build_skills_section(self) -> str:
+        """スキル情報をプロンプト用に構築"""
+        if not self.skill_manager:
+            return ""
+
+        try:
+            skills = self.skill_manager.list_skills()
+            if not skills:
+                return ""
+            return self.skill_formatter.format_all_skills(skills)
+        except Exception as e:
+            logging.warning(f"Failed to load skills for prompt: {e}")
+            return ""
 
     def build_agent_prompt(self, role_name: str, task: Dict) -> str:
         """ロール設定からプロンプトを構築"""
@@ -170,6 +191,9 @@ class TaskDispatcher:
                     "\n\n# Additional Context\n\n" + "\n\n---\n\n".join(contexts)
                 )
 
+        # スキルセクション構築
+        skills_section = self._build_skills_section()
+
         # 最終プロンプト構築
         full_prompt = f"""
 {base_prompt}
@@ -179,6 +203,8 @@ class TaskDispatcher:
 {lang_config}
 
 {additional_context}
+
+{skills_section}
 
 ---
 
@@ -242,175 +268,6 @@ class TaskDispatcher:
             agent_config["result"] = result
 
         return agent_config
-
-    async def decompose_task_with_manager(
-        self, task_id: str, task_description: str, num_agents: int
-    ) -> List[SubTask]:
-        """Managerエージェントを使ってタスクを分解
-
-        Args:
-            task_id: 親タスクID
-            task_description: タスクの説明
-            num_agents: 使用するエージェント数
-
-        Returns:
-            SubTaskのリスト
-        """
-        # Managerプロンプトを読み込み
-        manager_prompt_file = Path(__file__).parent.parent / "agents" / "manager_prompt.md"
-
-        if not manager_prompt_file.exists():
-            # フォールバック：シンプルな分解
-            return self.decompose_task_to_agents(task_id, task_description, num_agents)
-
-        with open(manager_prompt_file) as f:
-            manager_prompt = f.read()
-
-        # Managerエージェントに問い合わせ
-        full_prompt = f"""{manager_prompt}
-
----
-
-# User Task
-
-{task_description}
-
-**Available Agents**: {num_agents}
-
-Please analyze this task and provide the decomposition in YAML format following this structure:
-
-```yaml
-tasks:
-  - id: task-1
-    title: Task title
-    role: agent_role
-    priority: high|medium|low
-    description: Detailed description
-```
-"""
-
-        # Managerエージェントを呼び出し
-        try:
-            # AgentExecutorまたはClaudeCodeExecutorを使用
-            if hasattr(self, "executor") and self.executor:
-                # マネージャーを実行（asyncメソッドなので直接await）
-                result = await self.executor.execute_agent(
-                    prompt=full_prompt,
-                    model="claude-sonnet-4-20250514",
-                )
-
-                if not result.get("success"):
-                    logging.warning(f"Manager execution failed: {result.get('error')}")
-                    return self.decompose_task_to_agents(task_id, task_description, num_agents)
-
-                response = result.get("response", "")
-
-                # YAMLを抽出
-                subtasks = self._extract_tasks_from_yaml(response, task_id)
-
-                if subtasks:
-                    return subtasks
-                else:
-                    logging.warning("No valid tasks extracted from manager response")
-                    return self.decompose_task_to_agents(task_id, task_description, num_agents)
-
-            else:
-                # Executorが設定されていない場合はフォールバック
-                return self.decompose_task_to_agents(task_id, task_description, num_agents)
-
-        except Exception as e:
-            logging.error(f"Error in decompose_task_with_manager: {e}")
-            return self.decompose_task_to_agents(task_id, task_description, num_agents)
-
-    def _extract_tasks_from_yaml(self, response: str, parent_task_id: str) -> List[SubTask]:
-        """応答からYAMLを抽出してSubTaskリストに変換
-
-        Args:
-            response: マネージャーの応答
-            parent_task_id: 親タスクID
-
-        Returns:
-            SubTaskのリスト
-        """
-        subtasks = []
-
-        # YAMLブロックを抽出（```yaml ... ``` または ``` ... ```）
-        yaml_pattern = r'```(?:yaml)?\s*\n(.*?)\n```'
-        yaml_matches = re.findall(yaml_pattern, response, re.DOTALL)
-
-        for yaml_text in yaml_matches:
-            try:
-                data = yaml.safe_load(yaml_text)
-
-                if not data or "tasks" not in data:
-                    continue
-
-                tasks_data = data["tasks"]
-                if not isinstance(tasks_data, list):
-                    continue
-
-                for task_data in tasks_data:
-                    if not isinstance(task_data, dict):
-                        continue
-
-                    # 必須フィールドチェック
-                    if "title" not in task_data and "description" not in task_data:
-                        continue
-
-                    # SubTaskを作成
-                    subtask_id = task_data.get("id", f"{parent_task_id}-{len(subtasks) + 1}")
-                    description = task_data.get("description") or task_data.get("title", "")
-                    role = task_data.get("role", "general")
-                    priority = task_data.get("priority", "medium")
-
-                    subtask = SubTask(
-                        subtask_id=subtask_id,
-                        parent_task_id=parent_task_id,
-                        description=description,
-                        role=role,
-                        priority=priority,
-                    )
-                    subtasks.append(subtask)
-
-            except yaml.YAMLError as e:
-                logging.warning(f"Failed to parse YAML: {e}")
-                continue
-
-        return subtasks
-
-    def decompose_task_to_agents(
-        self, task_id: str, task_description: str, num_agents: Optional[int] = None
-    ) -> List[SubTask]:
-        """タスクを複数のエージェント用サブタスクに分解（シンプル版）
-
-        Args:
-            task_id: 親タスクID
-            task_description: タスクの説明
-            num_agents: 使用するエージェント数（Noneの場合は自動決定）
-
-        Returns:
-            SubTaskのリスト
-        """
-        if num_agents is None:
-            num_agents = 1
-
-        num_agents = min(num_agents, self.max_agents)
-        subtasks = []
-
-        for idx in range(num_agents):
-            subtask_id = f"{task_id}-sub{idx + 1}"
-            agent_id = f"agent-{idx + 1}"
-
-            subtask = SubTask(
-                subtask_id=subtask_id,
-                parent_task_id=task_id,
-                description=task_description,
-                agent_id=agent_id,
-            )
-            subtasks.append(subtask)
-
-        self.current_subtasks = subtasks
-        return subtasks
 
     def assign_tasks_to_agents(self, subtasks: List[SubTask]) -> None:
         """サブタスクをエージェントに割り当て（YAMLファイルに書き込み）"""
@@ -492,231 +349,3 @@ tasks:
         # 結果ファイルを削除
         for result_file in self.results_dir.glob("*.yaml"):
             result_file.unlink()
-
-    async def report_task_started(
-        self, agent_id: str, subtask_id: str, description: str
-    ) -> None:
-        """エージェントがタスク開始を報告
-
-        Args:
-            agent_id: エージェントID
-            subtask_id: サブタスクID
-            description: タスク説明
-        """
-        await self.message_queue.send_message(
-            message_type=MessageType.TASK_STARTED,
-            sender=agent_id,
-            receiver="manager",
-            content=f"タスクを開始しました: {description}",
-            priority=MessagePriority.MEDIUM,
-            metadata={
-                "subtask_id": subtask_id,
-                "description": description,
-            },
-        )
-
-        # サブタスクの状態を更新
-        for subtask in self.current_subtasks:
-            if subtask.subtask_id == subtask_id:
-                subtask.status = "in_progress"
-                break
-
-    async def report_task_progress(
-        self, agent_id: str, subtask_id: str, progress: str, percentage: Optional[int] = None
-    ) -> None:
-        """エージェントがタスク進捗を報告
-
-        Args:
-            agent_id: エージェントID
-            subtask_id: サブタスクID
-            progress: 進捗内容
-            percentage: 進捗率（0-100）
-        """
-        await self.message_queue.send_message(
-            message_type=MessageType.TASK_PROGRESS,
-            sender=agent_id,
-            receiver="manager",
-            content=progress,
-            priority=MessagePriority.LOW,
-            metadata={
-                "subtask_id": subtask_id,
-                "percentage": percentage,
-            },
-        )
-
-    async def report_task_completed(
-        self, agent_id: str, subtask_id: str, result: str
-    ) -> None:
-        """エージェントがタスク完了を報告
-
-        Args:
-            agent_id: エージェントID
-            subtask_id: サブタスクID
-            result: 実行結果
-        """
-        await self.message_queue.send_message(
-            message_type=MessageType.TASK_COMPLETED,
-            sender=agent_id,
-            receiver="manager",
-            content=f"タスクが完了しました: {result[:100]}",
-            priority=MessagePriority.HIGH,
-            metadata={
-                "subtask_id": subtask_id,
-                "result": result,
-            },
-        )
-
-        # サブタスクの状態を更新
-        for subtask in self.current_subtasks:
-            if subtask.subtask_id == subtask_id:
-                subtask.status = "completed"
-                subtask.result = result
-                break
-
-    async def report_task_failed(
-        self, agent_id: str, subtask_id: str, error: str
-    ) -> None:
-        """エージェントがタスク失敗を報告
-
-        Args:
-            agent_id: エージェントID
-            subtask_id: サブタスクID
-            error: エラー内容
-        """
-        await self.message_queue.send_message(
-            message_type=MessageType.TASK_FAILED,
-            sender=agent_id,
-            receiver="manager",
-            content=f"タスクが失敗しました: {error}",
-            priority=MessagePriority.URGENT,
-            metadata={
-                "subtask_id": subtask_id,
-                "error": error,
-            },
-        )
-
-        # サブタスクの状態を更新
-        for subtask in self.current_subtasks:
-            if subtask.subtask_id == subtask_id:
-                subtask.status = "failed"
-                break
-
-    async def request_task_reassignment(
-        self, subtask_id: str, reason: str, new_priority: Optional[str] = None
-    ) -> bool:
-        """タスクの再割り当てをリクエスト
-
-        Args:
-            subtask_id: サブタスクID
-            reason: 再割り当て理由
-            new_priority: 新しい優先度
-
-        Returns:
-            成功したかどうか
-        """
-        # サブタスクを検索
-        subtask = None
-        for st in self.current_subtasks:
-            if st.subtask_id == subtask_id:
-                subtask = st
-                break
-
-        if not subtask:
-            logging.warning(f"Subtask {subtask_id} not found for reassignment")
-            return False
-
-        # 優先度を更新
-        if new_priority:
-            subtask.priority = new_priority
-
-        # ステータスをリセット
-        old_worker = subtask.agent_id
-        subtask.status = "pending"
-        subtask.agent_id = None
-        subtask.result = None
-
-        # メッセージを送信
-        await self.message_queue.send_message(
-            message_type=MessageType.REASSIGN_REQUEST,
-            sender="manager",
-            receiver="manager",  # 自分自身
-            content=f"タスク {subtask_id} を再割り当て: {reason}",
-            priority=MessagePriority.HIGH,
-            metadata={
-                "subtask_id": subtask_id,
-                "reason": reason,
-                "old_worker": old_worker,
-                "new_priority": new_priority,
-            },
-        )
-
-        logging.info(f"Task {subtask_id} reassignment requested: {reason}")
-        return True
-
-    async def retry_failed_task(self, subtask_id: str, max_retries: int = 3) -> bool:
-        """失敗したタスクをリトライ
-
-        Args:
-            subtask_id: サブタスクID
-            max_retries: 最大リトライ回数
-
-        Returns:
-            リトライを開始したかどうか
-        """
-        # サブタスクを検索
-        subtask = None
-        for st in self.current_subtasks:
-            if st.subtask_id == subtask_id:
-                subtask = st
-                break
-
-        if not subtask or subtask.status != "failed":
-            return False
-
-        # メタデータからリトライ回数を取得
-        retry_count = getattr(subtask, "retry_count", 0)
-
-        if retry_count >= max_retries:
-            logging.warning(f"Task {subtask_id} exceeded max retries ({max_retries})")
-            return False
-
-        # リトライ回数を更新
-        subtask.retry_count = retry_count + 1  # type: ignore
-
-        # 再割り当てをリクエスト
-        await self.request_task_reassignment(
-            subtask_id=subtask_id,
-            reason=f"リトライ ({retry_count + 1}/{max_retries})",
-            new_priority="high",
-        )
-
-        return True
-
-    async def get_pending_tasks(self) -> List[SubTask]:
-        """未割り当てのタスクを取得
-
-        Returns:
-            未割り当てタスクのリスト
-        """
-        return [st for st in self.current_subtasks if st.status == "pending"]
-
-    async def get_task_summary(self) -> Dict[str, Any]:
-        """タスク全体のサマリーを取得
-
-        Returns:
-            サマリー情報
-        """
-        total = len(self.current_subtasks)
-        pending = sum(1 for st in self.current_subtasks if st.status == "pending")
-        in_progress = sum(1 for st in self.current_subtasks if st.status == "in_progress")
-        completed = sum(1 for st in self.current_subtasks if st.status == "completed")
-        failed = sum(1 for st in self.current_subtasks if st.status == "failed")
-
-        return {
-            "total": total,
-            "pending": pending,
-            "in_progress": in_progress,
-            "completed": completed,
-            "failed": failed,
-            "progress_percentage": (completed / total * 100) if total > 0 else 0,
-        }

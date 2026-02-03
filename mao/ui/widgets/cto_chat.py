@@ -1,6 +1,7 @@
-"""Manager Chat Widget - CTOとの対話ウィジェット"""
+"""CTO Chat Widget - CTOとの対話ウィジェット"""
 from textual.widgets import Static, Input
 from textual.containers import Container, Vertical, VerticalScroll
+from textual._context import NoActiveAppError
 from rich.text import Text
 from collections import deque
 from typing import Deque, Callable, Optional, List, Dict
@@ -11,7 +12,7 @@ class ChatMessage:
     """チャットメッセージ"""
 
     def __init__(self, sender: str, message: str, timestamp: Optional[datetime.datetime] = None):
-        self.sender = sender  # "user" or "manager"
+        self.sender = sender  # "user" or "cto"
         self.message = message
         self.timestamp = timestamp or datetime.datetime.now()
 
@@ -25,7 +26,7 @@ class ChatMessage:
             text.append(f"[{time_str}] ", style="dim")
             text.append("You", style="bold cyan")
             text.append(f": {self.message}", style="white")
-        elif self.sender == "manager":
+        elif self.sender == "cto":
             # CTOメッセージ
             text.append(f"[{time_str}] ", style="dim")
             text.append("CTO", style="bold green")
@@ -39,8 +40,8 @@ class ChatMessage:
         return text
 
 
-class ManagerChatWidget(Static, can_focus=True):
-    """マネージャーとのチャットウィジェット"""
+class CTOChatWidget(Static, can_focus=True):
+    """CTOとのチャットウィジェット"""
 
     BINDINGS = [
         ("up", "scroll_up", "Scroll Up"),
@@ -62,10 +63,15 @@ class ManagerChatWidget(Static, can_focus=True):
         self.messages.append(ChatMessage("user", message))
         self.refresh_display()
 
-    def add_manager_message(self, message: str):
-        """マネージャーメッセージを追加"""
-        self.messages.append(ChatMessage("manager", message))
+    def add_cto_message(self, message: str):
+        """CTOメッセージを追加"""
+        import logging
+        logger = logging.getLogger("mao.ui.cto_chat")
+
+        logger.debug(f"[CTOChat] add_cto_message called: {message[:50]}...")
+        self.messages.append(ChatMessage("cto", message))
         self.refresh_display()
+        logger.debug(f"[CTOChat] add_cto_message completed, total messages: {len(self.messages)}")
 
     def add_system_message(self, message: str):
         """システムメッセージを追加"""
@@ -76,7 +82,7 @@ class ManagerChatWidget(Static, can_focus=True):
     def start_streaming_message(self):
         """ストリーミングメッセージを開始"""
         self._streaming_buffer = ""
-        self._streaming_message = ChatMessage("manager", "")
+        self._streaming_message = ChatMessage("cto", "")
 
     def append_streaming_chunk(self, chunk: str):
         """ストリーミングメッセージにチャンクを追加
@@ -84,20 +90,32 @@ class ManagerChatWidget(Static, can_focus=True):
         Args:
             chunk: 追加するテキストチャンク
         """
+        import logging
+        logger = logging.getLogger("mao.ui.cto_chat")
+
         if self._streaming_message is None:
+            logger.debug("[CTOChat] Starting new streaming message")
             self.start_streaming_message()
 
         self._streaming_buffer += chunk
         if self._streaming_message:
             self._streaming_message.message = self._streaming_buffer
+            logger.debug(f"[CTOChat] append_streaming_chunk: buffer length = {len(self._streaming_buffer)}")
             self.refresh_display()
 
     def complete_streaming_message(self):
         """ストリーミングメッセージを完了"""
+        import logging
+        logger = logging.getLogger("mao.ui.cto_chat")
+
         if self._streaming_message and self._streaming_buffer:
+            logger.debug(f"[CTOChat] Completing streaming message: {len(self._streaming_buffer)} chars")
             # ストリーミングメッセージを正式にメッセージリストに追加
             self.messages.append(self._streaming_message)
             self.refresh_display()
+            logger.debug(f"[CTOChat] Streaming complete, total messages: {len(self.messages)}")
+        else:
+            logger.warning("[CTOChat] complete_streaming_message called but no streaming message exists")
 
         # ストリーミング状態をクリア
         self._streaming_message = None
@@ -114,7 +132,7 @@ class ManagerChatWidget(Static, can_focus=True):
         for msg in self.messages:
             if msg.sender == "user":
                 history.append({"role": "user", "content": msg.message})
-            elif msg.sender == "manager":
+            elif msg.sender == "cto":
                 history.append({"role": "assistant", "content": msg.message})
             # システムメッセージは履歴に含めない
         return history
@@ -135,6 +153,9 @@ class ManagerChatWidget(Static, can_focus=True):
 
     def refresh_display(self):
         """表示を更新"""
+        import logging
+        logger = logging.getLogger("mao.ui.cto_chat")
+
         content = Text()
         content.append("[CTO Chat]\n", style="bold cyan")
 
@@ -157,22 +178,30 @@ class ManagerChatWidget(Static, can_focus=True):
                 content.append(self._streaming_message.format())
                 content.append("\n")
 
-        # App コンテキストがある場合のみ update を呼ぶ
+        # Appコンテキスト内でのみ更新
         try:
+            # self.app にアクセスしてAppコンテキストを確認
+            _ = self.app
+            logger.debug(f"[CTOChat] refresh_display: Updating widget with {len(self.messages)} messages")
             self.update(content)
-            # 自動的に最下部にスクロール
             self.scroll_end(animate=False)
-        except Exception:
-            # テスト時やApp外では update をスキップ
-            pass
+            logger.debug("[CTOChat] refresh_display: Update successful")
+        except NoActiveAppError:
+            # Appコンテキストがない場合はスキップ（テスト環境など）
+            logger.debug("[CTOChat] refresh_display: Skipped (App not available)")
+        except Exception as e:
+            logger.error(f"[CTOChat] refresh_display FAILED: {e}", exc_info=True)
+            # エラーを再スロー（デバッグ時）
+            if logger.level <= logging.DEBUG:
+                raise
 
 
-class ManagerChatInput(Input):
-    """マネージャーチャット用の入力フィールド"""
+class CTOChatInput(Input):
+    """CTOチャット用の入力フィールド"""
 
     def __init__(self, *args, **kwargs):
         super().__init__(
-            placeholder="マネージャーに送信するメッセージを入力... (Enter で送信)",
+            placeholder="CTOに送信するメッセージを入力... (Enter で送信)",
             *args,
             **kwargs
         )
@@ -190,17 +219,17 @@ class ManagerChatInput(Input):
             self.value = ""  # 入力をクリア
 
 
-class ManagerChatPanel(Container):
-    """マネージャーチャットパネル（チャット表示+入力フィールド）"""
+class CTOChatPanel(Container):
+    """CTOチャットパネル（チャット表示+入力フィールド）"""
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.chat_widget = ManagerChatWidget()
-        self.input_widget = ManagerChatInput()
+        self.chat_widget = CTOChatWidget()
+        self.input_widget = CTOChatInput()
 
     def compose(self):
         """ウィジェットを構成"""
-        with VerticalScroll(id="manager_chat_scroll"):
+        with VerticalScroll(id="cto_chat_scroll"):
             yield self.chat_widget
         yield self.input_widget
 
@@ -215,9 +244,9 @@ class ManagerChatPanel(Container):
 
         self.input_widget.set_submit_callback(on_submit)
 
-    def add_manager_message(self, message: str):
-        """マネージャーメッセージを追加"""
-        self.chat_widget.add_manager_message(message)
+    def add_cto_message(self, message: str):
+        """CTOメッセージを追加"""
+        self.chat_widget.add_cto_message(message)
 
     def add_system_message(self, message: str):
         """システムメッセージを追加"""

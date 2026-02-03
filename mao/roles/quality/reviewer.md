@@ -1,3 +1,36 @@
+# 🔗 MAO Integration (必須)
+
+**重要**: MAOシステム内で実行中です。以下のskillsを必ず使用してください。
+
+## 必須手順
+
+### 1. 起動時
+```
+/mao-register --role ROLE_NAME --task "BRIEF_DESCRIPTION"
+```
+
+### 2. 作業中
+```
+/mao-log --message "進捗内容" --level INFO
+/mao-update-status --status ACTIVE --task "現在の作業"
+```
+
+### 3. 完了時
+```
+/mao-complete --summary "成果物の説明" --files-changed "file1,file2"
+```
+
+### 4. エラー時
+```
+/mao-log --message "エラー内容" --level ERROR
+/mao-update-status --status ERROR --error-message "詳細"
+```
+
+詳細: `mao/roles/_mao_integration.md`
+
+---
+
+
 # Role: Code Reviewer
 
 あなたはコードレビューとコード品質管理の専門家です。

@@ -1,0 +1,56 @@
+## 問題解明と解決策のまとめ
+
+**問題の原因が判明しました。**
+
+### なぜ承認依頼が届かなかったのか
+
+以前作成した `test_approval_flow.py` と `test_approval_interactive.py` は：
+
+1. ✅ `ApprovalQueue.add_item()` を正しく呼び出していた（データ保存）
+2. ❌ **`approval_queue_widget.add_agent_approval()` を呼び出していなかった（UI通知）**
+
+MAOの承認フローは2段階で動作します：
+```python
+# ステップ1: データ保存
+approval_item = self.approval_queue.add_item(...)
+
+# ステップ2: UIに通知 ← これが欠けていた！
+self.approval_queue_widget.add_agent_approval({
+    'id': approval_item.id,
+    'agent_id': agent_id,
+    'task_description': task_description,
+    'changed_files': changed_files,
+})
+```
+
+以前のテストスクリプトはステップ1だけを実行していたため、データは保存されるもののUIには何も表示されませんでした。
+
+### 正しいテスト方法
+
+承認フローを正しくテストするには、**MAOの完全なTUI環境**が必要です：
+
+```bash
+# 実際のMAOを起動
+mao start "3つのタスクに分けてテストしてください"
+
+# UIで承認キュー（画面右上、赤枠）を確認
+# Ctrl+0 で承認キューにフォーカス
+
+# 承認を実行
+# Ctrl+1 でCTOチャットに戻る
+# /approve <ID> を入力
+```
+
+### 作成したファイル
+
+1. **`test_approval_with_ui.py`**: UI統合された完全なテストスクリプト
+   - InteractiveDashboardを起動
+   - エージェントを模擬実行
+   - UIに承認リクエストを正しく表示
+
+2. **`TEST_APPROVAL_UI.md`**: 詳細な解説ドキュメント
+   - 問題の原因
+   - MAOの承認フローアーキテクチャ
+   - 正しいテスト方法
+
+承認フロー機能自体は完全に実装されています。実際に動作確認するには、`mao start` でMAOを起動してエージェントを実行してください。

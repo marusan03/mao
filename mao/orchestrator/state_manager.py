@@ -68,16 +68,19 @@ class StateManager:
         project_path: Optional[Path] = None,
         use_sqlite: bool = True,
         logger: Optional[logging.Logger] = None,
+        session_id: Optional[str] = None,
     ):
         """
         Args:
             project_path: プロジェクトパス（.maoディレクトリの親）
             use_sqlite: SQLiteを使用するか（Falseの場合はメモリのみ）
             logger: ロガー
+            session_id: セッションID（セッション間でエージェントを分離）
         """
         self.project_path = project_path or Path.cwd()
         self.use_sqlite = use_sqlite
         self.logger = logger or logging.getLogger(__name__)
+        self.session_id = session_id
 
         # メモリ内状態（高速アクセス用）
         self._states: Dict[str, AgentState] = {}
@@ -89,6 +92,19 @@ class StateManager:
 
         if self.use_sqlite:
             self._init_database()
+
+    def _make_key(self, agent_id: str) -> str:
+        """エージェント状態のキーを生成（session_id:agent_id）
+
+        Args:
+            agent_id: エージェントID
+
+        Returns:
+            セッションIDを含むキー
+        """
+        if self.session_id:
+            return f"{self.session_id}:{agent_id}"
+        return agent_id
 
     def _init_database(self) -> None:
         """データベースを初期化"""
@@ -187,7 +203,9 @@ class StateManager:
                 worktree_path=worktree_path,
             )
 
-            self._states[agent_id] = state
+            # セッションIDを含むキーを使用
+            key = self._make_key(agent_id)
+            self._states[key] = state
 
             # SQLiteに保存
             if self.use_sqlite and self.conn:
@@ -221,16 +239,26 @@ class StateManager:
             エージェント状態（存在しない場合はNone）
         """
         async with self._lock:
-            return self._states.get(agent_id)
+            key = self._make_key(agent_id)
+            return self._states.get(key)
 
     async def get_all_states(self) -> List[AgentState]:
-        """全エージェント状態を取得
+        """全エージェント状態を取得（現在のセッションのみ）
 
         Returns:
             エージェント状態のリスト
         """
         async with self._lock:
-            return list(self._states.values())
+            if self.session_id:
+                # 現在のセッションのエージェントのみ
+                prefix = f"{self.session_id}:"
+                return [
+                    state for key, state in self._states.items()
+                    if key.startswith(prefix)
+                ]
+            else:
+                # セッションIDなしの場合は全て返す（後方互換性）
+                return list(self._states.values())
 
     async def clear_state(self, agent_id: str) -> None:
         """エージェント状態をクリア
@@ -239,8 +267,9 @@ class StateManager:
             agent_id: エージェントID
         """
         async with self._lock:
-            if agent_id in self._states:
-                del self._states[agent_id]
+            key = self._make_key(agent_id)
+            if key in self._states:
+                del self._states[key]
 
             if self.use_sqlite and self.conn:
                 self.conn.execute("DELETE FROM agent_states WHERE agent_id = ?", (agent_id,))
@@ -256,22 +285,32 @@ class StateManager:
                 self.conn.commit()
 
     def get_stats(self) -> Dict[str, Any]:
-        """統計情報を取得
+        """統計情報を取得（現在のセッションのみ）
 
         Returns:
             統計情報
         """
-        total_tokens = sum(state.tokens_used for state in self._states.values())
-        total_cost = sum(state.cost for state in self._states.values())
+        # 現在のセッションのエージェントのみを対象
+        if self.session_id:
+            prefix = f"{self.session_id}:"
+            session_states = [
+                state for key, state in self._states.items()
+                if key.startswith(prefix)
+            ]
+        else:
+            session_states = list(self._states.values())
+
+        total_tokens = sum(state.tokens_used for state in session_states)
+        total_cost = sum(state.cost for state in session_states)
 
         active_count = sum(
             1
-            for state in self._states.values()
+            for state in session_states
             if state.status in (AgentStatus.ACTIVE, AgentStatus.THINKING)
         )
 
         return {
-            "total_agents": len(self._states),
+            "total_agents": len(session_states),
             "active_agents": active_count,
             "total_tokens": total_tokens,
             "total_cost": total_cost,
