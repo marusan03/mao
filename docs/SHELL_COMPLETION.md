@@ -181,6 +181,31 @@ MAOの補完は**動的**です。つまり：
 - `complete_session_ids()`: セッションID補完
 - `complete_agent_ids()`: エージェントID補完
 
+### カスタム補完の実装
+
+カスタム補完が必要なパラメータには `shell_complete` を指定:
+
+```python
+@click.option(
+    "--role",
+    shell_complete=complete_roles,  # カスタム補完関数
+    help="Agent role"
+)
+```
+
+補完関数は `(value, help_text)` のタプルを返します:
+
+```python
+def complete_roles(ctx, param, incomplete):
+    """ロール名を補完"""
+    roles = list_available_roles()
+    return [
+        (role.name, role.description)
+        for role in roles
+        if role.name.startswith(incomplete)
+    ]
+```
+
 ## 🎯 ベストプラクティス
 
 ### 効率的な使い方

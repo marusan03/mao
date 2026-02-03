@@ -1,0 +1,26 @@
+# Dockerfile.mao-sandbox
+# MAO (Multi-Agent Orchestrator) Docker Sandbox Template
+#
+# This image extends the Claude Code sandbox with MAO preinstalled,
+# allowing isolated execution of MAO projects.
+#
+# Build:
+#   docker build -t mao-sandbox:latest -f Dockerfile.mao-sandbox .
+#
+# Or use: mao sandbox build
+
+FROM docker/sandbox-templates:claude-code
+
+# Install git if not present, then install MAO
+RUN apt-get update && apt-get install -y --no-install-recommends git \
+    && rm -rf /var/lib/apt/lists/* \
+    && pip install --no-cache-dir git+https://github.com/marusan03/mao.git
+
+# Verify installation
+RUN which tmux && which claude && which mao
+
+# Set working directory (project will be mounted here)
+WORKDIR /workspace
+
+# Default command - start interactive shell
+CMD ["/bin/bash"]

@@ -67,7 +67,7 @@ class TaskDispatcher(TaskDecomposerMixin, TaskReporterMixin):
         self.roles = self._load_roles()
         self.max_agents = max_agents
         self.project_path = project_path or Path.cwd()
-        self.executor = executor  # AgentExecutor or ClaudeCodeExecutor
+        self.executor = executor  # AgentExecutor（オプション）
 
         # キューディレクトリ
         if self.project_path:

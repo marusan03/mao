@@ -1,12 +1,10 @@
 """
-Dashboard Spawner Mixin - エージェントの起動・実行
+Dashboard Spawner Mixin - エージェントの起動・実行（tmux必須）
 """
 from datetime import datetime
 import asyncio
-from pathlib import Path
 from typing import Optional, TYPE_CHECKING
 
-from mao.orchestrator.claude_code_executor import ClaudeCodeExecutor
 from mao.orchestrator.state_manager import AgentStatus
 
 if TYPE_CHECKING:
@@ -157,7 +155,7 @@ Branch: {agent_branch}
 
                     # tmuxペイン内でclaude-codeをインタラクティブモードで実行
                     # 1. インタラクティブclaudeを起動
-                    success = self.tmux_manager.execute_interactive_claude_code_in_pane(
+                    success = self.tmux_manager.execute_claude_in_pane(
                         pane_id=pane_id,
                         model=model,
                         work_dir=work_dir,
@@ -212,15 +210,14 @@ Branch: {agent_branch}
                             agent_id="cto",
                         )
             else:
-                # tmuxなしの場合は直接実行
-                executor = ClaudeCodeExecutor(
-                    allow_unsafe_operations=self.config.security.allow_unsafe_operations
-                )
-                asyncio.create_task(
-                    self._execute_worker_agent(
-                        executor, agent_id, task_description, role, model
+                # tmuxなしの場合はエラー（新アーキテクチャではtmux必須）
+                if self.log_viewer_widget:
+                    self.log_viewer_widget.add_log(
+                        f"❌ tmux manager not available. tmux is required for agent execution.",
+                        level="ERROR",
+                        agent_id="cto",
                     )
-                )
+                return
 
         except Exception as e:
             if self.log_viewer_widget:
@@ -270,98 +267,3 @@ Branch: {agent_branch}
                 )
             import traceback
             traceback.print_exc()
-
-    async def _execute_worker_agent(
-        self: "InteractiveDashboard",
-        executor: ClaudeCodeExecutor,
-        agent_id: str,
-        task_description: str,
-        role: str,
-        model: str
-    ) -> None:
-        """エージェントエージェントを実行（バックグラウンド）
-
-        Args:
-            executor: ClaudeCodeExecutor
-            agent_id: エージェントID
-            task_description: タスクの説明
-            role: MAOロール名
-            model: 使用するモデル
-        """
-        try:
-            # エージェントを実行
-            result = await executor.execute_agent(
-                prompt=task_description,
-                model=model,
-                work_dir=self.work_dir,
-            )
-
-            if result.get("success"):
-                # 成功
-                if self.log_viewer_widget:
-                    self.log_viewer_widget.add_log(
-                        f"✅ Agent {agent_id} completed successfully",
-                        level="INFO",
-                        agent_id=agent_id,
-                    )
-
-                # エージェントの状態を更新
-                await self.state_manager.update_state(
-                    agent_id=agent_id,
-                    role=role,
-                    status=AgentStatus.IDLE,
-                    current_task="完了",
-                )
-
-                # エージェント一覧を更新
-                if self.agent_list_widget:
-                    self.agent_list_widget.update_agent(
-                        agent_id=agent_id,
-                        status="completed",
-                        task="完了",
-                        role=role,
-                    )
-
-                # CTOに結果を報告
-                if self.cto_chat_panel:
-                    response = result.get("response", "")[:200]
-                    self.cto_chat_panel.add_system_message(
-                        f"✅ {agent_id} 完了\n"
-                        f"   結果: {response}..."
-                    )
-
-            else:
-                # エラー
-                error = result.get("error", "Unknown error")
-                if self.log_viewer_widget:
-                    self.log_viewer_widget.add_log(
-                        f"❌ Agent {agent_id} failed: {error}",
-                        level="ERROR",
-                        agent_id=agent_id,
-                    )
-
-                # エージェントの状態を更新
-                await self.state_manager.update_state(
-                    agent_id=agent_id,
-                    role=role,
-                    status=AgentStatus.ERROR,
-                    current_task="エラー",
-                    error_message=error,
-                )
-
-                # エージェント一覧を更新
-                if self.agent_list_widget:
-                    self.agent_list_widget.update_agent(
-                        agent_id=agent_id,
-                        status="error",
-                        task=f"エラー: {error[:30]}",
-                        role=role,
-                    )
-
-        except Exception as e:
-            if self.log_viewer_widget:
-                self.log_viewer_widget.add_log(
-                    f"❌ Agent {agent_id} crashed: {str(e)}",
-                    level="ERROR",
-                    agent_id=agent_id,
-                )

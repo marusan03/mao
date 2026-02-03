@@ -3,472 +3,269 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 
-Hierarchical AI development system powered by Claude.
+Hierarchical AI development system powered by Claude Code.
 
 ## Overview
 
-MAO is a multi-agent orchestration framework that enables complex software development tasks through a hierarchical team of specialized AI agents. Built on Claude API, MAO provides a production-ready system for AI-assisted software development with built-in governance, security review, and skill learning capabilities.
+MAO is a multi-agent orchestration framework that runs multiple Claude Code CLI instances in parallel within tmux. A CTO (Chief Technology Officer) agent coordinates the work, delegating tasks to specialized agents through YAML-based communication.
 
 ## Architecture
 
 ```
-User (Approver)
-    ↓
-🛡️ Auditor (Security & Ethics)
-    ↓
-📋 Planner ←→ 🔍 Researcher
-    ↓
-🏗️ Architect
-    ↓
-Development Pool (dynamic)
-├── 🎨 Designer
-├── 💻 Coder (Frontend/Backend/API/etc.)
-└── ...
-    ↓
-Quality Assurance
-├── 👁️ Reviewer
-└── 🧪 Tester
-    ↓
-Integration
-├── 🔧 Integrator
-├── 📝 Documentor
-└── 🚀 DevOps
+User
+  ↓ (mao start "task")
+CTO (tmux pane 0: Interactive Claude Code)
+  ├→ Agent-1 (tmux pane 1: Interactive Claude Code)
+  ├→ Agent-2 (tmux pane 2: Interactive Claude Code)
+  └→ ... (dynamically spawned as needed)
+
+[Optional] Dashboard: Progress & log monitoring
 ```
 
-## Features
+## Key Features
 
-- **Hierarchical Agent System**: Specialized agents for governance, planning, development, QA, and integration
-- **Dynamic Agent Pool**: Spawn development agents on-demand with specific roles
-- **Real-time Monitoring**: Textual TUI dashboard + tmux agent logs
-- **Flexible Configuration**: YAML + Markdown role definitions
-- **Coding Standards**: Language-specific and project-specific coding standards support
-- **State Management**: Redis or SQLite backend
-- **Headless Agents**: Agents run in background, logs streamed to tmux
-- **Skill Learning**: Automatically extracts reusable patterns and creates skills with security review
-- **Built-in Governance**: Security auditing and ethics review before execution
+- **tmux-centric**: All agents run as interactive Claude Code instances in tmux panes
+- **CTO-led orchestration**: CTO decomposes tasks and coordinates agents
+- **YAML-based communication**: Agents communicate via `.mao/queue/tasks/` and `.mao/queue/reports/`
+- **No `--print` mode**: All Claude Code instances run interactively
+- **Optional dashboard**: TUI for monitoring progress (not required)
+
+## Requirements
+
+- **tmux** (required): `brew install tmux` or `apt install tmux`
+- **Claude Code CLI** (required): https://claude.ai/download
+- **Python 3.11+**
+- **uv** (optional): https://github.com/astral-sh/uv
 
 ## Installation
-
-MAO uses [uv](https://github.com/astral-sh/uv), a blazing-fast Python package manager, for dependency management.
-
-### Prerequisites
-
-Install uv if not already installed:
-
-```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh
-```
-
-### Quick Install
-
-```bash
-# One-line installer
-curl -fsSL https://raw.githubusercontent.com/marusan03/mao/main/install.sh | sh
-```
-
-The installer will:
-
-- Verify uv is installed
-- Create a virtual environment at `~/.mao/venv`
-- Install MAO and all dependencies from `pyproject.toml`
-- Create executable at `~/.local/bin/mao`
-- Optionally add to your PATH
-
-### From Source
 
 ```bash
 # Clone repository
 git clone https://github.com/marusan03/mao.git
 cd mao
 
-# Install (auto-installs uv if needed)
-./install.sh
-
-# Or for development with uv
-uv venv
+# Install with pip or uv
+pip install -e .
+# or
 uv pip install -e .
-
-# Or use the development wrapper
-./bin/mao --help
 ```
 
 ## Quick Start
 
-### Agent Execution Modes
-
-MAO supports three execution modes:
-
-**1. Claude Code CLI Mode** (Recommended - No API key required):
-- ✅ Run multiple Claude Code instances in parallel
-- ✅ Each agent gets its own workspace
-- ✅ No API key needed
-- ✅ Free to use with Claude Code
-
-Prerequisites:
-- Install Claude Code: https://claude.ai/download
-- Ensure `claude-code` or `claude` command is available in PATH
-
-**2. API Mode** (Requires API key):
-- Uses Anthropic API directly
-- Requires ANTHROPIC_API_KEY
+### 1. Initialize your project
 
 ```bash
-export ANTHROPIC_API_KEY=your-api-key-here
-```
-
-Get your API key from: https://console.anthropic.com/
-
-**3. Dashboard Only Mode** (No agent execution):
-- View project configuration
-- Monitor project structure
-- Access settings and configuration
-
-MAO automatically detects which mode to use:
-1. First tries Claude Code CLI
-2. Falls back to API mode if API key is set
-3. Dashboard only if neither is available
-
-### Initialize Project
-
-```bash
-# Initialize in your project
-cd /path/to/your/project
+cd your-project
 mao init
+```
 
-# Start the orchestrator
-mao start
+### 2. Start MAO with a task
 
-# (Optional) View agent logs in another terminal
+```bash
+mao start "Implement authentication system"
+```
+
+This will:
+1. Create a tmux session with CTO + agent panes
+2. Start CTO in pane 0 with your task
+3. CTO will decompose the task and delegate to agents
+
+### 3. Interact with agents
+
+```bash
+# Attach to tmux session
 tmux attach -t mao
+
+# Navigate between panes
+Ctrl+B → arrow keys
+
+# Zoom into a pane
+Ctrl+B → z
+
+# Detach from session
+Ctrl+B → d
 ```
 
-### Test Agent Execution
-
-Simple test to verify setup:
+### 4. (Optional) Launch dashboard for monitoring
 
 ```bash
-cd mao
-python examples/test_agent.py
+# In a separate terminal
+mao dashboard
 ```
-
-For streaming responses:
-
-```bash
-python examples/test_agent_streaming.py
-```
-
-### Updating MAO
-
-Keep MAO up to date with the latest features and fixes:
-
-```bash
-# Check current version
-mao version
-
-# Update to latest version
-mao update
-```
-
-The `mao version` command shows:
-- Current version number
-- Git commit hash
-- Installation date
-- Python and uv versions
-
-The `mao update` command will:
-- Show current version
-- Check for new commits on GitHub
-- Display what's changed (commit log)
-- Ask for confirmation before updating
-- Pull the latest changes (if installed via git)
-- Reinstall dependencies with uv
-- Show new version after update
-- Preserve your project configurations
 
 ## Usage
 
 ### Commands
 
 ```bash
-mao init              # Initialize MAO in current project
-mao start             # Start the orchestrator dashboard
-mao start --no-tmux   # Start without tmux monitoring
-mao config            # Show current configuration
-mao roles             # List available agent roles
-mao languages         # List supported languages
-mao languages python  # Show Python language details
-mao version           # Show detailed version information
-mao update            # Update MAO to the latest version
-mao uninstall         # Uninstall MAO
-mao --help            # Show help
-mao --version         # Show version (short)
+mao start "task"              # Start MAO with a task
+mao start --dashboard "task"  # Start with dashboard
+mao dashboard                 # Launch dashboard for existing session
+mao init                      # Initialize MAO in project
+mao sandbox start "task"      # Start MAO in Docker Sandbox
+mao sandbox attach            # Attach to existing sandbox
+mao --help                    # Show help
 ```
 
-### Project Structure
+### Options
 
-After `mao init`, your project will have:
+```bash
+mao start [OPTIONS] [PROMPT]
 
-```sh
+Options:
+  -p, --project-dir PATH       Project directory (default: current)
+  -t, --task TEXT             Task prompt (alternative to PROMPT)
+  --model [sonnet|opus|haiku]  Model for CTO (default: sonnet)
+  -n, --num-agents INTEGER     Number of agent panes (default: 4)
+  --dashboard                  Also launch dashboard
+  -s, --session TEXT          Continue from session ID
+  --new-session               Always create new session
+```
+
+## Docker Sandbox Mode (Optional)
+
+For enhanced security, run MAO inside a Docker Sandbox (MicroVM):
+
+```bash
+# Build MAO sandbox template (first time only)
+mao sandbox build
+
+# Start MAO in isolated sandbox
+mao sandbox start "Implement authentication"
+
+# Attach to existing sandbox
+mao sandbox attach
+
+# List all sandboxes
+mao sandbox ls
+```
+
+Docker Sandboxes protect your host system while allowing MAO to operate normally. Requires Docker Desktop with AI Sandboxes enabled.
+
+See [docs/SANDBOX.md](docs/SANDBOX.md) for details.
+
+## How It Works
+
+### 1. Task Distribution
+
+CTO creates YAML task files for agents:
+
+```yaml
+# .mao/queue/tasks/agent-1.yaml
+task_id: task-001
+role: agent-1
+prompt: |
+  Implement the login API endpoint.
+  - POST /api/login
+  - JWT authentication
+model: sonnet
+status: ASSIGNED
+```
+
+### 2. Agent Execution
+
+Each agent runs interactively in its tmux pane, picking up tasks from the queue.
+
+### 3. Result Reporting
+
+Agents report results via YAML:
+
+```yaml
+# .mao/queue/reports/agent-1.yaml
+task_id: task-001
+role: agent-1
+status: COMPLETED
+result: |
+  Implemented login API.
+  - Created src/api/auth.py
+  - Added tests
+```
+
+### 4. CTO Review
+
+CTO reviews results and either approves, requests changes, or escalates to user.
+
+## tmux Session Layout
+
+```
+┌─ CTO ─────────┬─ Agent-1 ─────┬─ Agent-2 ─────┐
+│               │               │               │
+│ Claude Code   │ Claude Code   │ Claude Code   │
+│ (interactive) │ (interactive) │ (interactive) │
+│               │               │               │
+├───────────────┼───────────────┼───────────────┤
+│ Agent-3       │ Agent-4       │ Agent-5       │
+│               │               │               │
+│ Claude Code   │ Claude Code   │ Claude Code   │
+│ (waiting)     │ (waiting)     │ (waiting)     │
+│               │               │               │
+└───────────────┴───────────────┴───────────────┘
+```
+
+## Project Structure
+
+```
 your-project/
 ├── .mao/
-│   ├── config.yaml              # Project configuration
-│   ├── coding_standards/        # Custom coding standards
-│   ├── roles/                   # Custom agent roles (optional)
-│   ├── context/                 # Project context documents
-│   └── logs/                    # Agent logs (created at runtime)
-├── src/
+│   ├── config.yaml           # Project configuration
+│   ├── queue/
+│   │   ├── tasks/           # CTO → Agent tasks
+│   │   └── reports/         # Agent → CTO reports
+│   ├── logs/                # Agent logs
+│   └── sessions/            # Session data
 └── ...
 ```
 
 ## Configuration
 
-### Project Configuration (.mao/config.yaml)
+### .mao/config.yaml
 
 ```yaml
 project_name: my-project
 default_language: python
 
-agents:
-  default_model: sonnet
-  enable_parallel: true
-  max_workers: 5
+defaults:
+  tmux:
+    grid:
+      width: 240
+      height: 60
+      num_agents: 4
 
-state:
-  backend: sqlite  # or redis
+security:
+  allow_unsafe_operations: false
 ```
 
-### Language Configuration
+## Troubleshooting
 
-MAO comes with pre-configured language settings for:
-
-- **Python** (PEP 8, Black, Ruff, mypy)
-- **TypeScript** (Prettier, ESLint, Airbnb style)
-- **JavaScript** (Prettier, ESLint)
-- **Go** (gofmt, golangci-lint, Effective Go)
-- **Rust** (rustfmt, clippy)
-
-Each language configuration includes:
-
-- Recommended tools (formatter, linter, test framework)
-- Default settings (line length, indent size, etc.)
-- Coding standards references
-- File extensions
-
-View available languages:
+### tmux not found
 
 ```bash
-mao languages           # List all supported languages
-mao languages python    # Show Python configuration details
+# macOS
+brew install tmux
+
+# Ubuntu
+sudo apt install tmux
 ```
 
-### Custom Coding Standards
+### Claude Code not found
 
-Agents automatically load coding standards based on the project language. You can customize these standards by adding files to `.mao/coding_standards/`:
+Install Claude Code from: https://claude.ai/download
 
-```markdown
-# .mao/coding_standards/python_custom.md
-
-## Project-Specific Rules
-
-### API Endpoints
-- Use `/api/v1/` prefix
-- Follow RESTful conventions
-
-### Error Handling
-- Use custom exception classes
-- Log all errors with structlog
-
-### Database
-- Use SQLAlchemy ORM
-- Migration files in alembic/versions/
-```
-
-**How it works:**
-
-1. Default standards are loaded from MAO's built-in templates
-2. Project-specific standards from `.mao/coding_standards/<language>_custom.md` are merged
-3. Agents receive the combined standards in their context
-4. This ensures consistent code style across all generated code
-
-## Skills System
-
-MAO automatically learns from repetitive patterns and creates reusable skills.
-
-### How It Works
-
-1. **Pattern Detection**: Agents detect repeated operations (3+ times)
-2. **Skill Extraction**: Skill Extractor agent creates a skill definition
-3. **Security Review**: Skill Reviewer evaluates security, quality, and generalization
-4. **User Approval**: You review and approve the skill
-5. **Reuse**: Use the skill across projects
-
-### Managing Skills
+Make sure `claude` command is in your PATH:
 
 ```bash
-# List available skills
-mao skills list
-
-# Show skill details
-mao skills show setup_fastapi
-
-# Run a skill
-mao skills run setup_fastapi --project_name=myapi
-
-# Dry run (preview commands)
-mao skills run setup_fastapi --project_name=myapi --dry-run
-
-# View pending proposals
-mao skills proposals
-
-# Delete a skill
-mao skills delete setup_fastapi
+which claude
 ```
 
-### Example: Auto-Generated Skill
-
-When agents repeatedly set up FastAPI projects, MAO automatically proposes:
-
-```yaml
-name: setup_fastapi
-display_name: "FastAPI Project Setup"
-description: "Automates FastAPI project initialization"
-
-parameters:
-  - name: project_name
-    type: string
-    required: true
-    description: "Project name"
-
-commands:
-  - pip install fastapi uvicorn pydantic
-  - mkdir -p app/{models,routers,schemas}
-  - touch app/__init__.py app/main.py
-```
-
-The skill is reviewed for:
-
-- **Security**: No dangerous operations
-- **Generalization**: Works across projects
-- **Documentation**: Clear and complete
-- **Quality**: High reusability score
-
-### Skill Security
-
-All skills undergo automated security review:
-
-- 🔴 **REJECTED**: Hardcoded credentials, arbitrary code execution, destructive commands
-- 🟡 **WARNING**: Package installation, file deletion, network access (requires approval)
-- ✅ **SAFE**: Read-only operations, new file creation
-
-## Agent Execution Engine
-
-MAO uses Claude API directly for agent execution. Each agent runs as an asynchronous process with streaming support.
-
-### Architecture
-
-```text
-Dashboard (Textual UI)
-    ↓
-AgentExecutor (Anthropic SDK)
-    ↓
-Multiple Agents (Parallel Execution)
-├── Planner
-├── Auditor
-├── Coder x3
-└── Reviewer
-    ↓
-Logs → tmux panes (monitoring)
-```
-
-### Features
-
-- **Async Execution**: Non-blocking parallel agent execution
-- **Streaming Support**: Real-time response streaming
-- **Token Tracking**: Automatic usage and cost calculation
-- **Logging**: Per-agent detailed logs
-- **Error Handling**: Robust error recovery
-
-### Example Usage
-
-```python
-from mao.orchestrator.agent_executor import AgentExecutor
-from mao.orchestrator.agent_logger import AgentLogger
-
-# Initialize
-executor = AgentExecutor()
-logger = AgentLogger("agent-001", "TestAgent", log_dir)
-
-# Execute agent
-result = await executor.execute_agent(
-    prompt="Your task here",
-    model="claude-sonnet-4-20250514",
-    logger=logger,
-)
-
-# Or with streaming
-async for event in executor.execute_agent_streaming(
-    prompt="Your task here",
-    model="claude-sonnet-4-20250514",
-    logger=logger,
-):
-    if event["type"] == "content":
-        print(event["content"], end="", flush=True)
-```
-
-### Supported Models
-
-- **Opus** (`claude-opus-4-20250514`): Most capable, highest cost
-- **Sonnet** (`claude-sonnet-4-20250514`): Balanced performance and cost (default)
-- **Haiku** (`claude-haiku-4-20250514`): Fast and economical
-
-### Configuration
-
-Set your API key in environment:
+### Session already exists
 
 ```bash
-export ANTHROPIC_API_KEY=your-api-key-here
+# Kill existing session
+tmux kill-session -t mao
+
+# Then restart
+mao start "your task"
 ```
-
-Or in `.mao/config.yaml`:
-
-```yaml
-api:
-  anthropic_key: your-api-key-here  # Not recommended for security
-```
-
-## Development
-
-```bash
-# Clone repository
-git clone https://github.com/marusan03/mao.git
-cd mao
-
-# Install uv if not already installed
-curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# Create virtual environment with uv
-uv venv --python python3.11
-
-# Install in development mode
-uv pip install -e .
-
-# Or use the development wrapper (handles uv setup automatically)
-./bin/mao --help
-```
-
-## Requirements
-
-### Required
-- Python 3.11+
-- [uv](https://github.com/astral-sh/uv) - Fast Python package manager
-
-### For Agent Execution (Choose one)
-- **Option 1 (Recommended)**: [Claude Code](https://claude.ai/download) - No API key needed
-- **Option 2**: Anthropic API key - From https://console.anthropic.com/
-
-### Optional
-- tmux - For agent monitoring in separate panes
-- Redis - For distributed state management
 
 ## License
 
@@ -477,12 +274,3 @@ MIT
 ## Contributing
 
 Contributions welcome! Please open an issue or PR on [GitHub](https://github.com/marusan03/mao).
-
-### Areas for Contribution
-
-- Additional agent roles (e.g., Performance Optimizer, Accessibility Specialist)
-- Language-specific coding standards
-- Skill templates
-- UI/UX improvements
-- Documentation
-- Bug fixes and performance improvements

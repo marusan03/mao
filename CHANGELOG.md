@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Architecture Refactoring: tmux-centric Design (BREAKING)**
+  - tmux is now mandatory - all agents run as interactive Claude Code instances in tmux panes
+  - Removed `--print` mode entirely - all Claude Code instances are interactive
+  - CTO orchestrates agents through YAML-based communication (`.mao/queue/tasks/`, `.mao/queue/reports/`)
+  - Dashboard is now optional (use `--dashboard` flag or `mao dashboard` command)
+  - Simplified CLI: removed `--tmux/--no-tmux` option since tmux is required
+  - Added `--num-agents` option to configure number of agent panes (default: 4)
+
+### Removed
+- **Deleted `--print` mode code**
+  - `mao/orchestrator/claude_code_executor.py` - removed entirely
+  - `mao/orchestrator/agent_loop.py` - removed entirely
+  - `mao/ui/dashboard.py` - removed legacy dashboard
+  - `execute_claude_code_in_pane()` method removed from tmux_executor.py
+  - `start_agent_loop_in_pane()` method removed from tmux_executor.py
+
 ### Fixed
 - **MAO Integration Skills - Parallel Execution Support** - Added concurrency safety to prevent data loss and SQLite errors
   - Phase 1 (Critical fixes):
@@ -24,6 +41,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Impact: Multiple agents can now safely run in parallel without data corruption or database errors
 
 ### Added
+- **Docker Sandbox Mode** - Run MAO in isolated Docker AI Sandboxes (MicroVMs)
+  - `mao sandbox start "task"` - Start MAO in isolated sandbox
+  - `mao sandbox attach` - Reconnect to existing sandbox
+  - `mao sandbox rm` - Remove sandbox
+  - `mao sandbox ls` - List all MAO sandboxes
+  - `mao sandbox build` - Build custom MAO template for faster startups
+  - `mao sandbox status` - Show sandbox status
+  - New files: `mao/orchestrator/sandbox_manager.py`, `mao/cli_sandbox.py`, `mao/docker/Dockerfile.mao-sandbox`
+  - Documentation: `docs/SANDBOX.md`
+  - Requires Docker Desktop with AI Sandboxes enabled
+
 - **MAO Integration Skills for Task Agents** - Skills that Claude Code Task agents can use to integrate with MAO
   - `/mao-register` - Register Task agent with MAO's StateManager
   - `/mao-log` - Send logs to MAO's log viewer

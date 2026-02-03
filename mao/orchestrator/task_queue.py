@@ -4,7 +4,7 @@ YAML-based task queue for inter-agent communication
 Based on the pattern from multi-agent-shogun:
 - Manager writes tasks to queue/tasks/<agent-id>.yaml
 - Agents poll for their task file
-- Agents write results to queue/results/<agent-id>.yaml
+- Agents write reports to queue/reports/<agent-id>.yaml
 """
 import yaml
 import time
@@ -73,11 +73,11 @@ class TaskQueue:
         # キューディレクトリ
         self.queue_dir = project_path / ".mao" / "queue"
         self.tasks_dir = self.queue_dir / "tasks"
-        self.results_dir = self.queue_dir / "results"
+        self.reports_dir = self.queue_dir / "reports"
 
         # ディレクトリ作成
         self.tasks_dir.mkdir(parents=True, exist_ok=True)
-        self.results_dir.mkdir(parents=True, exist_ok=True)
+        self.reports_dir.mkdir(parents=True, exist_ok=True)
 
     def assign_task(self, task: Task) -> bool:
         """タスクをエージェントに割り当て
@@ -153,7 +153,7 @@ class TaskQueue:
             成功したかどうか
         """
         try:
-            result_file = self.results_dir / f"{task.role}.yaml"
+            result_file = self.reports_dir / f"{task.role}.yaml"
 
             # 結果をYAMLとして書き込み
             with result_file.open("w", encoding="utf-8") as f:
@@ -176,7 +176,7 @@ class TaskQueue:
             結果タスク、なければNone
         """
         try:
-            result_file = self.results_dir / f"{role}.yaml"
+            result_file = self.reports_dir / f"{role}.yaml"
 
             if not result_file.exists():
                 return None
@@ -218,7 +218,7 @@ class TaskQueue:
         Returns:
             結果が存在するか
         """
-        result_file = self.results_dir / f"{role}.yaml"
+        result_file = self.reports_dir / f"{role}.yaml"
         return result_file.exists()
 
     def list_pending_tasks(self) -> List[str]:
@@ -229,20 +229,20 @@ class TaskQueue:
         """
         return [f.stem for f in self.tasks_dir.glob("*.yaml")]
 
-    def list_completed_results(self) -> List[str]:
+    def list_completed_reports(self) -> List[str]:
         """完了済み結果のリストを取得
 
         Returns:
             ロール名のリスト
         """
-        return [f.stem for f in self.results_dir.glob("*.yaml")]
+        return [f.stem for f in self.reports_dir.glob("*.yaml")]
 
     def cleanup(self) -> None:
         """キューをクリーンアップ（全タスク・結果を削除）"""
         for task_file in self.tasks_dir.glob("*.yaml"):
             task_file.unlink()
 
-        for result_file in self.results_dir.glob("*.yaml"):
+        for result_file in self.reports_dir.glob("*.yaml"):
             result_file.unlink()
 
         self.logger.info("Task queue cleaned up")

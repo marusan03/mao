@@ -375,11 +375,65 @@ You: 次に何をすべきですか？
 
 ---
 
+## クイックリファレンス
+
+### 起動コマンド
+
+```bash
+mao start "Task description"
+# CTO interactive mode is automatically enabled
+```
+
+### キーボードショートカット（まとめ）
+
+| キー | アクション |
+|-----|--------|
+| `Ctrl+M` | マネージャーチャットにフォーカス |
+| `Enter` | メッセージ送信 |
+| `Esc` | フォーカス解除 |
+| `↑` / `↓` | エージェント選択 |
+| `q` | 終了 |
+| `r` | 画面更新 |
+
+### チャットメッセージの種類
+
+- 💬 **You** (シアン): あなたのメッセージ
+- 🤖 **CTO** (緑): CTOの応答
+- ℹ️ **System** (黄色): システム通知
+
+### MAOロール（CTOが自動割り当て）
+
+| ロール | 用途 |
+|--------|------|
+| coder_backend | バックエンド実装 |
+| reviewer | コードレビュー |
+| tester | テスト作成・実行 |
+| planner | タスク計画・設計 |
+| researcher | 技術調査 |
+| auditor | セキュリティ監査 |
+
+### よく使うコマンド例
+
+```
+# タスク計画を依頼
+You: タスクを3つのサブタスクに分解してください
+
+# 質問
+You: どの認証方式を推奨しますか？
+
+# 実装依頼
+You: ログイン機能を実装してください
+
+# 進捗確認
+You: 現在の進捗を教えてください
+```
+
+---
+
 ## 参考資料
 
 - [multi-agent-shogun](https://github.com/yohey-w/multi-agent-shogun) - インスピレーション元
 - [DASHBOARD_SPECIFICATION.md](DASHBOARD_SPECIFICATION.md) - ダッシュボード設計書
-- [USAGE.md](../USAGE.md) - 基本的な使い方
 
 ---
 

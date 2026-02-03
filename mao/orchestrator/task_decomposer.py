@@ -62,7 +62,7 @@ tasks:
 
         # Managerエージェントを呼び出し
         try:
-            # AgentExecutorまたはClaudeCodeExecutorを使用
+            # AgentExecutorを使用（tmux経由のCTOは別フロー）
             if hasattr(self, "executor") and self.executor:
                 # マネージャーを実行（asyncメソッドなので直接await）
                 result = await self.executor.execute_agent(

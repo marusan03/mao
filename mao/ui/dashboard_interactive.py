@@ -23,7 +23,6 @@ from mao.ui.widgets import (
 )
 from mao.orchestrator.project_loader import ProjectConfig
 from mao.orchestrator.tmux_manager import TmuxManager
-from mao.orchestrator.claude_code_executor import ClaudeCodeExecutor
 from mao.orchestrator.state_manager import StateManager
 from mao.orchestrator.message_queue import MessageQueue
 from mao.orchestrator.session_manager import SessionManager
@@ -270,10 +269,7 @@ class InteractiveDashboard(
         self.cto_chat_panel: Optional[CTOChatPanel] = None  # CTOチャット
         self.approval_queue_widget: Optional[ApprovalQueueWidget] = None
 
-        # CTOエグゼキュータ（Claude Code使用、スキルベース）
-        self.cto_executor = ClaudeCodeExecutor(
-            allow_unsafe_operations=config.security.allow_unsafe_operations
-        )
+        # CTOはtmuxペインで動作
         self.cto_active = False
 
         # TaskDispatcher（MAOロール読み込み）

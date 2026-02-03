@@ -1,9 +1,17 @@
 """
-CLI start command - Session selection and dashboard startup
+CLI start command - tmux中心のマルチエージェント起動
+
+新アーキテクチャ:
+- tmux必須（全エージェントはtmuxペイン内で動作）
+- CTOはペイン0でインタラクティブClaude Code
+- エージェントは必要に応じてCTOが動的に起動
+- ダッシュボードはオプション（進捗確認用）
 """
 import sys
+import shutil
 from pathlib import Path
 from typing import Optional
+from datetime import datetime
 
 import click
 from rich.console import Console
@@ -24,7 +32,6 @@ def _select_session(project_path: Path) -> tuple[Optional[str], Optional[str]]:
     """
     from rich.table import Table
     from mao.orchestrator.session_manager import SessionManager
-    from datetime import datetime
 
     # ダミーセッションマネージャーで全セッションを取得
     temp_manager = SessionManager(project_path=project_path)
@@ -56,7 +63,7 @@ def _select_session(project_path: Path) -> tuple[Optional[str], Optional[str]]:
         try:
             updated_dt = datetime.fromisoformat(updated_at)
             updated_str = updated_dt.strftime("%m/%d %H:%M")
-        except:
+        except Exception:
             updated_str = updated_at[:16] if len(updated_at) > 16 else updated_at
 
         short_id = session_id[-8:] if len(session_id) > 8 else session_id
@@ -103,6 +110,16 @@ def _select_session(project_path: Path) -> tuple[Optional[str], Optional[str]]:
         return (None, None)
 
 
+def _check_tmux_available() -> bool:
+    """tmuxが利用可能かチェック"""
+    return shutil.which("tmux") is not None
+
+
+def _check_claude_available() -> bool:
+    """claude CLIが利用可能かチェック"""
+    return shutil.which("claude") is not None or shutil.which("claude-code") is not None
+
+
 def register_start_command(main_group: click.Group):
     """Register start command to main CLI group"""
 
@@ -116,37 +133,15 @@ def register_start_command(main_group: click.Group):
         help="Project directory (default: current directory)",
     )
     @click.option(
-        "--redis-url",
-        "-r",
-        default="redis://localhost:6379",
-        help="Redis URL for state management",
-    )
-    @click.option(
-        "--no-redis",
-        is_flag=True,
-        help="Use SQLite instead of Redis (local mode)",
-    )
-    @click.option(
-        "--tmux/--no-tmux",
-        default=True,
-        help="Enable tmux grid visualization (default: enabled).",
-    )
-    @click.option(
         "--task",
         "-t",
         help="Initial task prompt (alternative to positional argument)",
     )
     @click.option(
-        "--role",
-        default="general",
-        help="Agent role for the initial task (default: general)",
-        shell_complete=cli_completion.complete_roles,
-    )
-    @click.option(
         "--model",
         default="sonnet",
         type=click.Choice(["sonnet", "opus", "haiku"]),
-        help="Model to use for the initial task (default: sonnet)",
+        help="Model to use for CTO (default: sonnet)",
         shell_complete=cli_completion.complete_models,
     )
     @click.option(
@@ -159,55 +154,52 @@ def register_start_command(main_group: click.Group):
         is_flag=True,
         help="Always create a new session (skip selection)",
     )
+    @click.option(
+        "--dashboard",
+        is_flag=True,
+        help="Also launch the dashboard for progress monitoring (optional)",
+    )
+    @click.option(
+        "--num-agents",
+        "-n",
+        default=4,
+        type=int,
+        help="Number of agent panes to create (default: 4)",
+    )
     def start(
         prompt: Optional[str],
         project_dir: str,
-        redis_url: str,
-        no_redis: bool,
-        tmux: bool,
         task: Optional[str],
-        role: str,
         model: str,
         session: Optional[str],
         new_session: bool,
+        dashboard: bool,
+        num_agents: int,
     ):
-        """Start the Multi-Agent Orchestrator in interactive mode"""
+        """Start MAO with tmux-based multi-agent orchestration.
+
+        All agents run as interactive Claude Code instances in tmux panes.
+        CTO runs in pane 0 and orchestrates other agents as needed.
+        """
         project_path = Path(project_dir).resolve()
 
-        console.print(f"\n[bold green]🚀 Multi-Agent Orchestrator[/bold green]")
+        console.print(f"\n[bold green]🚀 Multi-Agent Orchestrator (MAO)[/bold green]")
         console.print(f"[dim]Project: {project_path}[/dim]")
 
-        # セッション選択
-        from mao.orchestrator.session_manager import SessionManager
-        selected_session_id = None
-        session_title = None
+        # 1. tmux必須チェック
+        if not _check_tmux_available():
+            console.print("\n[red bold]❌ Error: tmux is required but not found[/red bold]")
+            console.print("[yellow]Please install tmux:[/yellow]")
+            console.print("  macOS: [cyan]brew install tmux[/cyan]")
+            console.print("  Ubuntu: [cyan]sudo apt install tmux[/cyan]")
+            sys.exit(1)
 
-        if new_session:
-            console.print("[green]✓ 新規セッションを作成します[/green]")
-            session_title = console.input("[yellow]セッションタイトル（省略可）:[/yellow] ").strip()
-            if session_title:
-                console.print(f"[dim]タイトル: {session_title}[/dim]")
-        elif session:
-            selected_session_id = session
-            console.print(f"[green]✓ セッションを継続: {selected_session_id}[/green]")
-        else:
-            selected_session_id, session_title = _select_session(project_path)
-
-        session_id_to_use = selected_session_id
-        session_title_to_use = session_title
-
-        initial_prompt = prompt or task
-
-        if not initial_prompt:
-            console.print("\n[yellow]💡 使い方:[/yellow]")
-            console.print("  タスクを指定してエージェントを起動:")
-            console.print("    [cyan]mao start \"ログイン機能のテストを書いて\"[/cyan]")
-            console.print("\n  インタラクティブモードで複数エージェント起動:")
-            console.print("    [cyan]mao start \"認証システムを実装\"[/cyan]")
-            console.print("\n  詳細: [dim]cat USAGE.md[/dim]\n")
-        else:
-            console.print(f"\n[cyan]📋 タスク:[/cyan] {initial_prompt}")
-            console.print(f"[dim]Role: {role} | Model: {model}[/dim]")
+        # 2. claude CLI必須チェック
+        if not _check_claude_available():
+            console.print("\n[red bold]❌ Error: Claude Code CLI is required but not found[/red bold]")
+            console.print("[yellow]Please install Claude Code:[/yellow]")
+            console.print("  Visit: [cyan]https://claude.ai/download[/cyan]")
+            sys.exit(1)
 
         # プロジェクト設定読み込み
         from mao.orchestrator.project_loader import ProjectLoader
@@ -223,70 +215,276 @@ def register_start_command(main_group: click.Group):
 
         console.print(f"[dim]Config: {config.config_file}[/dim]")
 
-        # tmux設定
-        tmux_manager = None
+        # セッション選択
+        selected_session_id = None
+        session_title = None
 
-        if tmux:
-            from mao.orchestrator.tmux_manager import TmuxManager
+        if new_session:
+            console.print("[green]✓ 新規セッションを作成します[/green]")
+            session_title = console.input("[yellow]セッションタイトル（省略可）:[/yellow] ").strip()
+            if session_title:
+                console.print(f"[dim]タイトル: {session_title}[/dim]")
+        elif session:
+            selected_session_id = session
+            console.print(f"[green]✓ セッションを継続: {selected_session_id}[/green]")
+        else:
+            selected_session_id, session_title = _select_session(project_path)
 
-            if config.defaults and config.defaults.tmux:
-                grid_config = config.defaults.tmux.grid
-                tmux_manager = TmuxManager(
-                    use_grid_layout=True,
-                    grid_width=grid_config.width,
-                    grid_height=grid_config.height,
-                    num_agents=grid_config.num_agents,
-                )
+        initial_prompt = prompt or task
+
+        # モデル設定
+        model_map = {
+            "sonnet": "sonnet",
+            "opus": "opus",
+            "haiku": "haiku",
+        }
+        model_name = model_map.get(model, "sonnet")
+
+        # tmuxセッション作成
+        from mao.orchestrator.tmux_manager import TmuxManager
+
+        if config.defaults and config.defaults.tmux:
+            grid_config = config.defaults.tmux.grid
+            tmux_manager = TmuxManager(
+                use_grid_layout=True,
+                grid_width=grid_config.width,
+                grid_height=grid_config.height,
+                num_agents=num_agents,
+            )
+        else:
+            tmux_manager = TmuxManager(
+                use_grid_layout=True,
+                num_agents=num_agents,
+            )
+
+        if not tmux_manager.create_session():
+            console.print("[red]❌ Failed to create tmux session[/red]")
+            sys.exit(1)
+
+        console.print(f"\n[green]✓ tmux session 'mao' created[/green]")
+        console.print(f"  [cyan]CTO[/cyan] + [cyan]{num_agents} Agent panes[/cyan]")
+
+        # CTOプロンプト準備
+        cto_system_prompt = _build_cto_prompt(project_path, config, num_agents)
+
+        # CTOペイン（pane 0）でclaudeをインタラクティブ起動
+        cto_pane_id = tmux_manager.grid_panes.get("cto")
+        if cto_pane_id:
+            # CTOログファイル
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            log_dir = project_path / ".mao" / "logs"
+            log_dir.mkdir(parents=True, exist_ok=True)
+            cto_log_file = log_dir / f"cto_{timestamp}.log"
+
+            # CTOを起動
+            success = tmux_manager.start_cto_with_output_capture(
+                pane_id=cto_pane_id,
+                log_file=cto_log_file,
+                model=model_name,
+                work_dir=project_path,
+            )
+
+            if success:
+                console.print(f"[green]✓ CTO started in pane 0[/green]")
+
+                # 初期プロンプトがあれば送信
+                if initial_prompt:
+                    import time
+                    time.sleep(2)  # claude起動待ち
+
+                    full_prompt = f"""{cto_system_prompt}
+
+---
+
+# ユーザータスク
+
+{initial_prompt}
+
+上記タスクを分析し、必要に応じてエージェントを起動してください。
+"""
+                    tmux_manager.send_prompt_to_claude_pane(cto_pane_id, full_prompt)
+                    console.print(f"[green]✓ Initial task sent to CTO[/green]")
             else:
-                tmux_manager = TmuxManager(use_grid_layout=True)
+                console.print("[yellow]⚠ Failed to start CTO[/yellow]")
 
-            if not tmux_manager.is_tmux_available():
-                console.print("[yellow]⚠ tmux not found, running without tmux monitor[/yellow]")
-                tmux_manager = None
-            else:
-                if tmux_manager.create_session():
-                    console.print(f"\n[green]✓ Tmux Grid Enabled[/green]")
-                    console.print(f"  📋 Manager + 🔧 {tmux_manager.num_agents} Agents")
-                    console.print(f"  [cyan bold]tmux attach -t mao[/cyan bold] で各エージェントをリアルタイム確認")
-                    console.print(f"  [dim]各ペインにエージェント出力が表示されます[/dim]")
-                else:
-                    tmux_manager = None
+        console.print(f"\n[bold]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/bold]")
+        console.print(f"[bold green]🎯 MAO is running![/bold green]")
+        console.print(f"\n[cyan]To interact with agents:[/cyan]")
+        console.print(f"  [bold]tmux attach -t mao[/bold]")
+        console.print(f"\n[cyan]Tmux controls:[/cyan]")
+        console.print(f"  [dim]Ctrl+B then arrow keys[/dim] - Navigate between panes")
+        console.print(f"  [dim]Ctrl+B then z[/dim]          - Zoom into a pane")
+        console.print(f"  [dim]Ctrl+B then d[/dim]          - Detach from session")
+        console.print(f"[bold]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/bold]")
+
+        # ダッシュボードオプション
+        if dashboard:
+            console.print("\n[bold]Launching dashboard...[/bold]")
+            from mao.ui.dashboard_interactive import InteractiveDashboard
+
+            model_id_map = {
+                "sonnet": "claude-sonnet-4-20250514",
+                "opus": "claude-opus-4-20250514",
+                "haiku": "claude-3-5-haiku-20241022",
+            }
+
+            app = InteractiveDashboard(
+                project_path=project_path,
+                config=config,
+                use_redis=False,
+                redis_url=None,
+                tmux_manager=tmux_manager,
+                initial_prompt=initial_prompt,
+                initial_role="general",
+                initial_model=model_id_map.get(model, "claude-sonnet-4-20250514"),
+                session_id=selected_session_id,
+                session_title=session_title,
+            )
+
+            console.print("[dim]Dashboard: Ctrl+Q=Exit | Tab=Navigate[/dim]\n")
+
+            try:
+                app.run()
+            except KeyboardInterrupt:
+                console.print("\n[yellow]Dashboard closed[/yellow]")
+            finally:
+                cleanup = console.input("\n[yellow]Destroy tmux session?[/yellow] (y/N): ")
+                if cleanup.lower() == "y":
+                    tmux_manager.destroy_session()
+                    console.print("[green]✓ tmux session destroyed[/green]")
+        else:
+            # ダッシュボードなしの場合はヒントを表示
+            console.print(f"\n[dim]Tip: Run 'mao dashboard' in another terminal to monitor progress[/dim]")
+
+            # tmuxにアタッチするか確認
+            attach = console.input("\n[yellow]Attach to tmux session now?[/yellow] (Y/n): ")
+            if attach.lower() != "n":
+                import subprocess
+                try:
+                    subprocess.run(["tmux", "attach", "-t", "mao"])
+                except KeyboardInterrupt:
+                    pass
+
+                # 終了後のクリーンアップ
+                cleanup = console.input("\n[yellow]Destroy tmux session?[/yellow] (y/N): ")
+                if cleanup.lower() == "y":
+                    tmux_manager.destroy_session()
+                    console.print("[green]✓ tmux session destroyed[/green]")
+
+
+    @main_group.command()
+    @click.option(
+        "--project-dir",
+        "-p",
+        type=click.Path(exists=True, file_okay=False, dir_okay=True),
+        default=".",
+        help="Project directory (default: current directory)",
+    )
+    def dashboard(project_dir: str):
+        """Launch the MAO dashboard for monitoring agent progress.
+
+        Use this to monitor an existing MAO session.
+        The dashboard connects to the running tmux session and displays:
+        - Agent status and progress
+        - Task queue contents
+        - Logs and metrics
+        """
+        project_path = Path(project_dir).resolve()
+
+        console.print(f"\n[bold green]📊 MAO Dashboard[/bold green]")
+        console.print(f"[dim]Project: {project_path}[/dim]")
+
+        # プロジェクト設定読み込み
+        from mao.orchestrator.project_loader import ProjectLoader
+
+        loader = ProjectLoader(project_path)
+        try:
+            config = loader.load()
+        except FileNotFoundError:
+            console.print(
+                "[yellow]No MAO configuration found. Run 'mao init' first.[/yellow]"
+            )
+            sys.exit(1)
+
+        # 既存のtmuxセッションに接続
+        from mao.orchestrator.tmux_manager import TmuxManager
+
+        tmux_manager = TmuxManager(use_grid_layout=True)
+
+        if not tmux_manager.session_exists():
+            console.print("[yellow]⚠ No MAO tmux session found.[/yellow]")
+            console.print("[dim]Start MAO first with: mao start \"your task\"[/dim]")
+            sys.exit(1)
+
+        console.print("[green]✓ Connected to existing MAO session[/green]")
 
         # ダッシュボード起動
-        from mao.ui.dashboard_interactive import InteractiveDashboard as Dashboard
-        console.print("\n[bold green]🤝 インタラクティブモード[/bold green]")
-        console.print("[dim]マネージャーと対話しながらタスクを進めます[/dim]")
+        from mao.ui.dashboard_interactive import InteractiveDashboard
 
-        model_map = {
-            "sonnet": "claude-sonnet-4-20250514",
-            "opus": "claude-opus-4-20250514",
-            "haiku": "claude-3-5-haiku-20241022",
-        }
-        model_id = model_map.get(model, "claude-sonnet-4-20250514")
-
-        app = Dashboard(
+        app = InteractiveDashboard(
             project_path=project_path,
             config=config,
-            use_redis=not no_redis,
-            redis_url=redis_url if not no_redis else None,
+            use_redis=False,
+            redis_url=None,
             tmux_manager=tmux_manager,
-            initial_prompt=initial_prompt,
-            initial_role=role,
-            initial_model=model_id,
-            session_id=session_id_to_use,
-            session_title=session_title_to_use,
+            initial_prompt=None,
+            initial_role="general",
+            initial_model="claude-sonnet-4-20250514",
+            session_id=None,
+            session_title=None,
         )
 
-        console.print("\n[bold]ダッシュボード起動中...[/bold]")
-        console.print("[dim]キーボード操作: Ctrl+Q=終了 | Ctrl+R=更新 | Ctrl+M=チャット | Tab=移動[/dim]\n")
+        console.print("[dim]Dashboard: Ctrl+Q=Exit | Tab=Navigate | Ctrl+R=Refresh[/dim]\n")
 
         try:
             app.run()
         except KeyboardInterrupt:
-            console.print("\n[yellow]Shutting down...[/yellow]")
-        finally:
-            if tmux_manager:
-                cleanup = console.input("\n[yellow]Destroy tmux session?[/yellow] (y/N): ")
-                if cleanup.lower() == "y":
-                    tmux_manager.destroy_session()
-            sys.exit(0)
+            console.print("\n[yellow]Dashboard closed[/yellow]")
+
+
+def _build_cto_prompt(project_path: Path, config, num_agents: int) -> str:
+    """CTOシステムプロンプトを構築"""
+
+    # CTOロール定義を読み込み
+    cto_role_file = Path(__file__).parent / "roles" / "cto.yaml"
+    cto_instructions = ""
+
+    if cto_role_file.exists():
+        import yaml
+        with open(cto_role_file) as f:
+            cto_role = yaml.safe_load(f)
+            cto_instructions = cto_role.get("system_prompt", "")
+
+    return f"""# MAO CTO (Chief Technology Officer)
+
+{cto_instructions}
+
+## 環境情報
+
+- プロジェクトパス: {project_path}
+- 利用可能なエージェントペイン数: {num_agents}
+- エージェント通信: YAMLキュー経由 (.mao/queue/)
+
+## エージェント起動方法
+
+エージェントを起動するには、以下のようなタスクYAMLを作成してください:
+
+```yaml
+# .mao/queue/tasks/agent-1.yaml
+task_id: task-001
+role: agent-1
+prompt: |
+  タスクの詳細な説明...
+model: sonnet
+status: ASSIGNED
+```
+
+エージェントはこのファイルを検知して処理を開始します。
+完了後、結果は `.mao/queue/results/agent-1.yaml` に出力されます。
+
+## 重要事項
+
+1. ユーザー承認が必要な操作（破壊的変更、外部API呼び出しなど）は必ず確認してください
+2. 各エージェントは独立したtmuxペインでインタラクティブに動作しています
+3. タスク完了時は結果をサマリーしてユーザーに報告してください
+"""

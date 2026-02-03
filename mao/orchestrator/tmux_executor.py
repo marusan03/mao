@@ -61,63 +61,7 @@ class TmuxExecutorMixin:
         self.panes[agent_id] = pane_id
         return pane_id
 
-    def execute_claude_code_in_pane(
-        self: "TmuxManager",
-        pane_id: str,
-        prompt: str,
-        model: str = "sonnet",
-        work_dir: Optional[Path] = None,
-        allow_unsafe: bool = False,
-    ) -> bool:
-        """tmuxペイン内でclaudeを実行
-
-        Args:
-            pane_id: 実行するペインID
-            prompt: claudeに渡すプロンプト
-            model: モデル名（sonnet, opus, haiku）
-            work_dir: 作業ディレクトリ
-            allow_unsafe: --dangerously-skip-permissions を使用するか
-
-        Returns:
-            コマンド送信成功したかどうか
-        """
-        try:
-            # 一時ファイルにプロンプトを書き込む
-            if work_dir:
-                prompt_file = work_dir / f".mao_prompt_{pane_id.replace(':', '_')}.txt"
-            else:
-                prompt_file = Path(f"/tmp/.mao_prompt_{pane_id.replace(':', '_')}.txt")
-
-            prompt_file.write_text(prompt, encoding="utf-8")
-
-            # claudeコマンドを構築
-            safe_prompt_file = shlex.quote(str(prompt_file))
-            cmd_parts = [
-                "cat", safe_prompt_file, "|",
-                "claude", "--print",
-                "--model", model,
-            ]
-
-            if allow_unsafe:
-                cmd_parts.append("--dangerously-skip-permissions")
-
-            if work_dir:
-                safe_work_dir = shlex.quote(str(work_dir))
-                cmd_parts.extend(["--add-dir", safe_work_dir])
-
-            command = " ".join(cmd_parts)
-
-            # tmuxペイン内でコマンドを実行
-            # 重要: send-keysは2回に分けないとEnterが効かない（Zenn記事の知見）
-            self._send_to_pane(pane_id, command)
-
-            return True
-
-        except Exception as e:
-            self.logger.error(f"Failed to execute claude in pane: {e}")
-            return False
-
-    def execute_interactive_claude_code_in_pane(
+    def execute_claude_in_pane(
         self: "TmuxManager",
         pane_id: str,
         model: str = "sonnet",
@@ -158,57 +102,6 @@ class TmuxExecutorMixin:
 
         except Exception as e:
             self.logger.error(f"Failed to start interactive claude: {e}")
-            return False
-
-    def start_agent_loop_in_pane(
-        self: "TmuxManager",
-        pane_id: str,
-        role: str,
-        project_path: Path,
-        model: str = "sonnet",
-        poll_interval: float = 2.0,
-        allow_unsafe: bool = False,
-    ) -> bool:
-        """tmuxペイン内でエージェントループを起動
-
-        Args:
-            pane_id: 実行するペインID
-            role: エージェントロール（agent-1, agent-2, etc.）
-            project_path: プロジェクトルートパス
-            model: モデル名
-            poll_interval: ポーリング間隔（秒）
-            allow_unsafe: --dangerously-skip-permissions を使用するか
-
-        Returns:
-            コマンド送信成功したかどうか
-        """
-        try:
-            # agent_loop.pyのパス
-            agent_loop_script = Path(__file__).parent / "agent_loop.py"
-
-            # コマンドを構築
-            cmd_parts = [
-                "python3",
-                shlex.quote(str(agent_loop_script)),
-                "--role", role,
-                "--project-path", shlex.quote(str(project_path)),
-                "--model", model,
-                "--poll-interval", str(poll_interval),
-            ]
-
-            if allow_unsafe:
-                cmd_parts.append("--allow-unsafe")
-
-            command = " ".join(cmd_parts)
-
-            # tmuxペイン内でコマンドを実行
-            self._send_to_pane(pane_id, command)
-
-            self.logger.info(f"Started agent loop for {role} in pane {pane_id}")
-            return True
-
-        except Exception as e:
-            self.logger.error(f"Failed to start agent loop: {e}")
             return False
 
     def is_pane_busy(self: "TmuxManager", pane_id: str) -> bool:
@@ -421,7 +314,7 @@ class TmuxExecutorMixin:
             self.enable_pane_logging(pane_id, log_file)
 
             # 2. インタラクティブclaudeを起動
-            return self.execute_interactive_claude_code_in_pane(
+            return self.execute_claude_in_pane(
                 pane_id=pane_id,
                 model=model,
                 work_dir=work_dir,
